@@ -3,28 +3,34 @@ from PySide2.QtUiTools import QUiLoader
 import PySide2.QtWidgets as QtW
 from PySide2.QtCore import QFile
 
+# 3ds Max
+import pymxs
 import MaxPlus
+
+# Misc
 import sys
 import os
 
 # For 3ds Max - Temporarily add this file's directory to PATH
 sys.path.append(os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))))
 
-import util_pymxs as util
+# Local modules
+import radish_utilities as util
 
-# Utility functions
+rt = pymxs.runtime
 max_out = util.max_out
 
 
-class MaxDialogStarter(QtW.QDialog):
+class RadishUI(QtW.QDialog):
 
-    def __init__(self, ui_file, parent=MaxPlus.GetQMaxMainWindow()):
+    def __init__(self, ui_file, runtime, parent=MaxPlus.GetQMaxMainWindow()):
         """
         The Initialization of the main UI class
         :param ui_file: The path to the .UI file from QDesigner
+        :param runtime: The pymxs runtime
         :param parent: The main Max Window
         """
-        super(MaxDialogStarter, self).__init__(parent)
+        super(RadishUI, self).__init__(parent)
 
         # ---------------------------------------------------
         #                    Variables
@@ -32,6 +38,7 @@ class MaxDialogStarter(QtW.QDialog):
 
         self._ui_file_string = ui_file
         self._parent = parent
+        self._rt = runtime
 
         # ---------------------------------------------------
         #                     Main Init
@@ -60,46 +67,142 @@ class MaxDialogStarter(QtW.QDialog):
         # self.setWindowTitle(self._window_title)
 
         # ---------------------------------------------------
-        #                 Widget Definitions
+        #                   Widget Setup
         # ---------------------------------------------------
 
-        self._test_debug_layer = self.findChild(QtW.QLineEdit, 'jh_debug_layer')
-        self._test_debug_light = self.findChild(QtW.QLineEdit, 'jh_debug_light')
+        # Cams
+        self._rd_cam_le = self.findChild(QtW.QLineEdit, 'rd_cam_le')
+        self._rd_cam_chk = self.findChild(QtW.QCheckBox, 'rd_cam_override_chk')
+        self._rd_cam_cb = self.findChild(QtW.QComboBox, 'rd_cam_override_cb')
 
-        self._test_thing1_btn = self.findChild(QtW.QPushButton, 'jh_thing1_btn')
-        self._test_thing2_btn = self.findChild(QtW.QPushButton, 'jh_thing2_btn')
+        # Passes
+        self._rd_pass_cb = self.findChild(QtW.QComboBox, 'rd_selpass_cb')
+        self._rd_pass_le = self.findChild(QtW.QLineEdit, 'rd_selpass_cust_le')
 
-        self._test_lineprint_btn = self.findChild(QtW.QPushButton, 'jh_lineprint_btn')
-        self._test_lineprint_input = self.findChild(QtW.QLineEdit, 'jh_lineprint_input')
+        # Save / Load
+        self._rd_save_btn = self.findChild(QtW.QPushButton, 'rd_save_btn')
+        self._rd_load_btn = self.findChild(QtW.QPushButton, 'rd_load_btn')
+
+        # Resets
+        self._rd_resetpass_btn = self.findChild(QtW.QPushButton, 'rd_clear_pass_btn')
+        self._rd_resetcam_btn = self.findChild(QtW.QPushButton, 'rd_clear_cam_btn')
+        self._rd_resetall_btn = self.findChild(QtW.QPushButton, 'rd_clear_project_btn')
+
+        # Info
+        self._rd_config_le = self.findChild(QtW.QLineEdit, 'rd_config_le')
+        self._rd_status_label = self.findChild(QtW.QLabel, 'rd_status_label')
 
         # ---------------------------------------------------
-        #                Function Definitions
+        #                Function Connections
         # ---------------------------------------------------
 
-        self._test_thing1_btn.clicked.connect(self._test_do_thing1)  # Can't easily pass arguments, so call thing1 or
-        self._test_thing2_btn.clicked.connect(self._test_do_thing2)  # thing2 directly.
-        self._test_lineprint_btn.clicked.connect(self._test_lineprint)
+        # Cams
+        self._rd_cam_chk.stateChanged.connect(self._rd_cam_override)
 
-    def _test_do_thing1(self):
-        max_out('Thing 1')
+        # Passes
+        self._rd_pass_cb.currentIndexChanged.connect(self._rd_pass_override)
+
+        # Save / Load
+        self._rd_save_btn.clicked.connect(self.rd_save)
+        self._rd_load_btn.clicked.connect(self.rd_load)
+
+        # Resets
+        self._rd_resetpass_btn.clicked.connect(self.rd_reset_pass)
+        self._rd_resetcam_btn.clicked.connect(self.rd_reset_cam)
+        self._rd_resetall_btn.clicked.connect(self.rd_reset_all)
+
+        # ---------------------------------------------------
+        #                  Parameter Setup
+        # ---------------------------------------------------
+
+        # Stores indices for pass combobox
+        self._passes = {'beauty': 0, 'prepass': 1, 'custom': 2}
+
+        # Stores current active viewport
+        self._camera = self._rt.getActiveCamera()
+
+    # ---------------------------------------------------
+    #                  Private Methods
+    # ---------------------------------------------------
+
+    # Cams
+
+    # Check the state of the override checkbox, and toggle the override combobox accordingly
+    def _rd_cam_override(self):
+        max_out('DEBUG: _rd_cam_override')
+        if self._rd_cam_chk.isChecked():
+            self._rd_cam_le.setEnabled(False)
+            self._rd_cam_cb.setEnabled(True)
+        else:
+            self._rd_cam_le.setEnabled(True)
+            self._rd_cam_cb.setEnabled(False)
+
         return
 
-    def _test_do_thing2(self):
-        max_out('Thing 2')
+    # Passes
+
+    # Check the state of the pass combobox, if custom is selected unlock the input field for it.
+    def _rd_pass_override(self):
+        max_out('DEBUG: _rd_pass_override')
+        if self._rd_pass_cb.currentIndex() == self._passes['custom']:
+            self._rd_pass_le.setEnabled(True)
+        else:
+            self._rd_pass_le.setEnabled(False)
+
         return
 
-    def _test_lineprint(self):
-        max_out(self._test_lineprint_input.text())  # Get the contents of the line edit textbox with its .text() method
+    # Misc internal logic
+    def _rd_get_settings(self):
+        # Get all settings from dialog window and update class properties
+        max_out('DEBUG: _rd_get_settings')
+
+    # ---------------------------------------------------
+    #                  Public Methods
+    # ---------------------------------------------------
+
+    # Save / Load
+    def rd_save(self):
+        max_out('DEBUG: rd_save')
         return
 
+    def rd_load(self):
+        max_out('DEBUG: rd_load')
+        return
 
-# Code for opening the dialog
+    # Resets
+    def rd_reset_pass(self):
+        max_out('DEBUG: rd_reset_pass')
+        return
 
-app = MaxPlus.GetQMaxMainWindow()
-ui = MaxDialogStarter(uif, app)
+    def rd_reset_cam(self):
+        max_out('DEBUG: rd_reset_cam')
+        return
+
+    def rd_reset_all(self):
+        max_out('DEBUG: rd_reset_all')
+
+    # Active Viewport handler
+    def cam_change_handler(self):
+        max_out('DEBUG: cam_change_handler')
+        this_cam = self._rt.getActiveCamera()
+        if self._camera != this_cam:
+            max_out('DEBUG: cam_change_handler - Updating')
+            self._camera = this_cam
+            if self._camera is not None:
+                self._rd_cam_le.setText(this_cam.name)
+            else:
+                self._rd_cam_le.setText('None')
+
+        return
+
+# Set up dialog
 
 # Path to UI file
-uif = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + "\\qtDesignerTest.ui"
+uif = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + "\\radish_standalone.ui"
+
+app = MaxPlus.GetQMaxMainWindow()
+ui = RadishUI(uif, rt, app)
+
 
 # Destroys instances of the dialog before recreating it
 # noinspection PyBroadException
@@ -109,4 +212,11 @@ try:
 except:
     pass
 
+# Punch it
 ui.show()
+
+# Setup cam_change_handler
+rt.callbacks.removeScripts(rt.name("viewportChange"), id=rt.name("bdf_cameraChange"))
+rt.callbacks.addScript(rt.name("viewportChange"),
+                       "python.execute \"ui.cam_change_handler()\"",
+                       id=rt.name("bdf_cameraChange"))
