@@ -1,3 +1,7 @@
+# --------------------
+#       Modules
+# --------------------
+
 # PySide 2
 from PySide2.QtUiTools import QUiLoader
 import PySide2.QtWidgets as QtW
@@ -8,6 +12,7 @@ import pymxs
 import MaxPlus
 
 # Misc
+import logging
 import sys
 import os
 
@@ -19,7 +24,29 @@ import radish_utilities as util
 
 rt = pymxs.runtime
 max_out = util.max_out
+_radish_log_handler = util.CustomHandler()
 
+
+# --------------------
+#     Logger setup
+# --------------------
+_log = logging.getLogger("Radish")
+_log.setLevel(logging.DEBUG)
+# Clean up old handlers before re-initializing
+# Important, as the user may re-launch this script without re-launching the parent program
+if _log.handlers:
+    _log.info('Resetting Logger...')
+    for handler in list(_log.handlers):
+        _log.removeHandler(handler)
+# Add custom handler
+_log.addHandler(_radish_log_handler)
+
+_log.info('Logger active')
+
+
+# --------------------
+#      UI Class
+# --------------------
 
 class RadishUI(QtW.QDialog):
 
@@ -129,7 +156,7 @@ class RadishUI(QtW.QDialog):
 
     # Check the state of the override checkbox, and toggle the override combobox accordingly
     def _rd_cam_override(self):
-        max_out('DEBUG: _rd_cam_override')
+        _log.debug('_rd_cam_override')
         if self._rd_cam_chk.isChecked():
             self._rd_cam_le.setEnabled(False)
             self._rd_cam_cb.setEnabled(True)
@@ -143,7 +170,7 @@ class RadishUI(QtW.QDialog):
 
     # Check the state of the pass combobox, if custom is selected unlock the input field for it.
     def _rd_pass_override(self):
-        max_out('DEBUG: _rd_pass_override')
+        _log.debug('_rd_pass_override')
         if self._rd_pass_cb.currentIndex() == self._passes['custom']:
             self._rd_pass_le.setEnabled(True)
         else:
@@ -154,7 +181,7 @@ class RadishUI(QtW.QDialog):
     # Misc internal logic
     def _rd_get_settings(self):
         # Get all settings from dialog window and update class properties
-        max_out('DEBUG: _rd_get_settings')
+        _log.debug('_rd_get_settings')
 
     # ---------------------------------------------------
     #                  Public Methods
@@ -162,31 +189,31 @@ class RadishUI(QtW.QDialog):
 
     # Save / Load
     def rd_save(self):
-        max_out('DEBUG: rd_save')
+        _log.debug('rd_save')
         return
 
     def rd_load(self):
-        max_out('DEBUG: rd_load')
+        _log.debug('rd_load')
         return
 
     # Resets
     def rd_reset_pass(self):
-        max_out('DEBUG: rd_reset_pass')
+        _log.debug('rd_reset_pass')
         return
 
     def rd_reset_cam(self):
-        max_out('DEBUG: rd_reset_cam')
+        _log.debug('rd_reset_cam')
         return
 
     def rd_reset_all(self):
-        max_out('DEBUG: rd_reset_all')
+        _log.debug('rd_reset_all')
 
     # Active Viewport handler
     def cam_change_handler(self):
-        max_out('DEBUG: cam_change_handler')
+        _log.debug('cam_change_handler')
         this_cam = self._rt.getActiveCamera()
         if self._camera != this_cam:
-            max_out('DEBUG: cam_change_handler - Updating')
+            _log.debug('cam_change_handler - Updating')
             self._camera = this_cam
             if self._camera is not None:
                 self._rd_cam_le.setText(this_cam.name)
@@ -195,7 +222,19 @@ class RadishUI(QtW.QDialog):
 
         return
 
-# Set up dialog
+
+# --------------------
+#    Dialog Setup
+# --------------------
+
+# Destroys instances of the dialog before recreating it
+# This has to go before re-declaration of the ui variable
+try:  # noinspection PyBroadException
+    _log.info('Closing old instances of UI...')
+    ui.close()  # noinspection PyUnboundLocalVariable
+except:
+    _log.info('No old instances found')
+    pass
 
 # Path to UI file
 uif = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + "\\radish_standalone.ui"
@@ -203,19 +242,13 @@ uif = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + "
 app = MaxPlus.GetQMaxMainWindow()
 ui = RadishUI(uif, rt, app)
 
-
-# Destroys instances of the dialog before recreating it
-# noinspection PyBroadException
-try:
-    # noinspection PyUnboundLocalVariable
-    ui.close()
-except:
-    pass
-
 # Punch it
 ui.show()
+log.info('UI created')
 
-# Setup cam_change_handler
+# --------------------
+#  Cam Change Handler
+# --------------------
 rt.callbacks.removeScripts(rt.name("viewportChange"), id=rt.name("bdf_cameraChange"))
 rt.callbacks.addScript(rt.name("viewportChange"),
                        "python.execute \"ui.cam_change_handler()\"",
