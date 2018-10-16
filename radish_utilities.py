@@ -10,12 +10,14 @@ rt = pymxs.runtime
 maxScript = MaxPlus.Core.EvalMAXScript
 
 
-# Custom Logging Classes
+# --------------------
+#   Logging Classes
+# --------------------
 class CustomHandler(logging.Handler):
     def __init__(self):
         super(CustomHandler, self).__init__()
         # Apply a formatter to this handler on init
-        self.setFormatter(logging.Formatter('%(levelname)s - %(name)s - %(message)s'))
+        self.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
 
     def emit(self, record):
         output = self.format(record)
@@ -24,7 +26,9 @@ class CustomHandler(logging.Handler):
         maxScript(output)
 
 
-# Utility Functions
+# --------------------
+#      Utilities
+# --------------------
 def max_out(x):
     """
     Print x to MAXScript Listener.
@@ -95,6 +99,72 @@ def get_instances(x):
     return instanceObjs
 
 
+# --------------------
+#      XML Tools
+# --------------------
+def is_ascii(text):
+    """
+    Checks if input can be conformed to ASCII format.
+    :param text:
+    :return: Bool
+    """
+    if isinstance(text, unicode):
+        try:
+            text.encode('ascii')
+        except UnicodeEncodeError:
+            return False
+    else:
+        try:
+            text.decode('ascii')
+        except UnicodeDecodeError:
+            return False
+    return True
+
+
+def xml_tag_cleaner(el):
+    """
+    Cleans up an input for use as an XML element tag.  Works aggressively, will never fail to return a clean element.
+    :param el: The input to be cleaned up.
+    :return: A valid XML tag string.
+    """
+    output = el
+
+    # Low hanging fruit - strip leading and trailing whitespace
+    output = output.strip()
+
+    # Replace all non-alphanumeric characters with '_'
+    if not output.isalnum():
+        loop_output = ''
+        for char in output:
+            if not char.isalnum() and char != '_':
+                loop_output += '_'
+            else:
+                loop_output += char
+
+        output = loop_output
+
+    # If the first character is not a-z, or string begins with XML, prepend '_'
+    if not output[0].isalpha() or output.upper().startswith('XML'):
+        output = '_' + output
+
+    return output
+
+
+def xml_get_bool(bool_input):
+    """
+    Takes a string or int input, and returns a boolean value.  Acceptable inputs are True, False, 1, 0, case insensitive.
+    :param bool_input:
+    :return: Boolean
+    """
+    # Normalize the input to be uppercase
+    bool_input = str(bool_input).upper()
+
+    if bool_input == 'TRUE' or bool_input == '1':
+        return True
+    else:
+        return False
+
+
 def xml_indent(el, depth=0, careful=False):
     """
     Formats an XML ETree with newlines and indents.
@@ -119,5 +189,6 @@ def xml_indent(el, depth=0, careful=False):
                 xml_indent(el, depth + 1)
             el.tail = i  # De-indent closing tag
         else:  # If there aren't sub-elements, just add a newline
+            el.text = ''
             if not el.tail or not el.tail.strip():
                 el.tail = i

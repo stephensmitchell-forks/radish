@@ -12,6 +12,7 @@ import pymxs
 import MaxPlus
 
 # Misc
+import xml.etree.ElementTree as _ETree
 import logging
 import sys
 import os
@@ -22,26 +23,42 @@ sys.path.append(os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__fil
 # Local modules
 import radish_utilities as util
 
-rt = pymxs.runtime
-max_out = util.max_out
+_rt = pymxs.runtime
 _radish_log_handler = util.CustomHandler()
+
+_get_instances = util.get_instances
+
+_is_ascii = util.is_ascii
+_xml_tag_cleaner = util.xml_tag_cleaner
+_xml_get_bool = util.xml_get_bool
+_xml_indent = util.xml_indent
+
+
+# Destroys instances of the dialog before recreating it
+# This has to go before re-declaration of the ui variable
+try:  # noinspection PyBroadException
+    _log.info('Closing old instances of UI...')
+    ui.close()  # noinspection PyUnboundLocalVariable
+except:
+    pass
 
 
 # --------------------
 #     Logger setup
 # --------------------
+
 _log = logging.getLogger("Radish")
 _log.setLevel(logging.DEBUG)
 # Clean up old handlers before re-initializing
 # Important, as the user may re-launch this script without re-launching the parent program
-if _log.handlers:
-    _log.info('Resetting Logger...')
-    for handler in list(_log.handlers):
-        _log.removeHandler(handler)
+# if _log.handlers:
+#     _log.warning('Old Radish logger detected: resetting')
+#     for handler in list(_log.handlers):
+#         _log.removeHandler(handler)
 # Add custom handler
 _log.addHandler(_radish_log_handler)
 
-_log.info('Logger active')
+_log.info('Radish Logger active')
 
 
 # --------------------
@@ -57,7 +74,11 @@ class RadishUI(QtW.QDialog):
         :param runtime: The pymxs runtime
         :param parent: The main Max Window
         """
+        # Init QtW.QDialog
         super(RadishUI, self).__init__(parent)
+        # Set up callback for camera detection
+        self._active_camera_callback = MaxPlus.NotificationManager.Register(MaxPlus.NotificationCodes.ViewportChange,
+                                                                            self._active_camera_handler)
 
         # ---------------------------------------------------
         #                    Variables
@@ -142,11 +163,26 @@ class RadishUI(QtW.QDialog):
         #                  Parameter Setup
         # ---------------------------------------------------
 
+        # Parameters used for navigating the XML config
+        self._tgt_project = 'TEST'
+        self._tgt_cam = None
+        self._tgt_pass = None
+
         # Stores indices for pass combobox
         self._passes = {'beauty': 0, 'prepass': 1, 'custom': 2}
 
         # Stores current active viewport
-        self._camera = self._rt.getActiveCamera()
+        self._active_cam = self._rt.getActiveCamera()
+
+        # Sets config file path and reads xml file.  Generate one if it doesn't exist.
+        # This function also sets the _rd_cfg, _rd_cfg_root, and _rd_cfg_path params
+        self._rd_cfg_setup()
+
+        # ---------------------------------------------------
+        #               End of RadishUI Init
+        # ---------------------------------------------------
+
+        _log.info('RadishUI Initialized')
 
     # ---------------------------------------------------
     #                  Private Methods
@@ -154,34 +190,154 @@ class RadishUI(QtW.QDialog):
 
     # Cams
 
-    # Check the state of the override checkbox, and toggle the override combobox accordingly
     def _rd_cam_override(self):
+        """
+        Check the state of the override checkbox, and toggle the override combobox accordingly.
+        Also re-build the list of cameras when it's activated.
+        :return:
+        """
         _log.debug('_rd_cam_override')
         if self._rd_cam_chk.isChecked():
             self._rd_cam_le.setEnabled(False)
             self._rd_cam_cb.setEnabled(True)
+
+            tmp_cams = []
+
+            for c in _rt.cameras:
+                if len(_rt.getPropNames(c)) == 0:
+                    continue
+                else:
+                    tmp_cams.append(str(c.name))
+
+            self._rd_cam_cb.clear()
+            self._rd_cam_cb.addItems(tmp_cams)
+
         else:
             self._rd_cam_le.setEnabled(True)
             self._rd_cam_cb.setEnabled(False)
 
-        return
+    def _active_camera_handler(self, code):
+        """
+        This is used by the ViewportChange callback set in the RadishUI init.  It checks for changes in the
+        active camera view, and updates the GUI and _active_cam param accordingly.
+        :param code: Callback Code
+        :return: None
+        """
+        _log.debug('_active_camera_handler called with event code ' + str(code))
+        this_cam = self._rt.getActiveCamera()
+        if self._active_cam != this_cam:
+            _log.info('_active_camera_handler - Updating')
+            self._active_cam = this_cam
+            if self._active_cam is not None:
+                self._rd_cam_le.setText(this_cam.name)
+            else:
+                self._rd_cam_le.setText('None')
 
     # Passes
 
-    # Check the state of the pass combobox, if custom is selected unlock the input field for it.
     def _rd_pass_override(self):
+        """
+        Check the state of the pass combobox, if custom is selected unlock the input field for it.
+        :return: None
+        """
         _log.debug('_rd_pass_override')
         if self._rd_pass_cb.currentIndex() == self._passes['custom']:
             self._rd_pass_le.setEnabled(True)
         else:
             self._rd_pass_le.setEnabled(False)
 
-        return
+    # Info
+
+    def _rd_cfg_setup(self):
+        """
+        Handles finding and setting up the Radish config file, and assigning the
+        _rd_cfg, _rd_cfg_root, _rd_cfg_path params.
+        :return: None
+        """
+        self._rd_cfg_path = os.path.dirname(__file__) + '\\radishConfig.xml'
+        try:
+            _log.info('Trying to read config file ' + self._rd_cfg_path + '...')
+            self._rd_cfg = _ETree.parse(self._rd_cfg_path)
+            self._rd_cfg_root = self._rd_cfg.getroot()
+            # Display config file path in GUI
+            self._rd_config_le.setText(self._rd_cfg_path)
+            self._rd_status_label.setText('Config file found')
+        except IOError:
+            _log.info('Config not found.  Generating one instead')
+            self._rd_cfg = _ETree.ElementTree(_ETree.Element('root'))
+            self._rd_cfg_root = self._rd_cfg.getroot()
+            _xml_indent(self._rd_cfg_root)
+            self._rd_cfg.write(self._rd_cfg_path)
+            _log.info('New config saved')
+            # Indicate new config file in GUI
+            self._rd_config_le.setText(self._rd_cfg_path)
+            self._rd_status_label.setText('No config found - Created new file at above address')
+        except _ETree.ParseError:
+            _log.error("Config file is corrupt, and can't be read!  Backing it up and trying agian...")
+            self._rd_status_label.setText("Config file is corrupt, and can't be read!  Backing it up...")
+            os.rename(self._rd_cfg_path, self._rd_cfg_path + '.BAK')
+            self._rd_cfg_setup()
+
+        # except:
+        #      _log.error('Unknown error while reading config file')
 
     # Misc internal logic
     def _rd_get_settings(self):
-        # Get all settings from dialog window and update class properties
+        """
+        Get all settings from dialog window and update class properties.
+        :return: None
+        """
         _log.debug('_rd_get_settings')
+
+        _rd_settings_valid = True
+
+        # Cam
+        if self._rd_cam_chk.isChecked():
+            self._tgt_cam = self._rd_cam_cb.currentText()
+        else:
+            self._tgt_cam = self._rd_cam_le.text()
+
+        # Pass
+        if self._rd_pass_cb.currentIndex() == self._passes['custom']:
+            self._tgt_pass = self._rd_pass_le.text().upper()
+        else:
+            self._tgt_pass = self._rd_pass_cb.currentText().upper()
+
+        _log.debug('Cam: ' + self._tgt_cam + '  ---   Pass: ' + self._tgt_pass)
+
+        # Cam / Pass name validation
+        if _is_ascii(self._tgt_cam) is False:
+            _log.error('Camera name must be a valid ASCII string!  Clean your shit up!')
+            self._rd_status_label.setText('Camera name must be a valid ASCII string!  Clean your shit up!')
+            _rd_settings_valid = False
+
+        if _is_ascii(self._tgt_pass) is False:
+            _log.error('Pass name must be a valid ASCII string!  Cut it out!')
+            self._rd_status_label.setText('Pass name must be a valid ASCII string!  Cut it out!')
+            _rd_settings_valid = False
+
+        return _rd_settings_valid
+
+    def _rd_save_to_disk(self):
+        """
+        Handles writing the config file to disk.
+        :return: Bool indicating success or failure.
+        """
+        # XML Cleanup
+        _xml_indent(self._rd_cfg_root)
+
+        # Save to disk
+        try:
+            self._rd_cfg.write(self._rd_cfg_path)
+        except IOError:
+            _log.error('Unable to save config to disk')
+            self._rd_status_label.setText('Unable to save config to disk')
+            return False
+        except:
+            _log.error('Unknown error while writing config file')
+            return False
+
+        return True
 
     # ---------------------------------------------------
     #                  Public Methods
@@ -190,66 +346,137 @@ class RadishUI(QtW.QDialog):
     # Save / Load
     def rd_save(self):
         _log.debug('rd_save')
-        return
+
+        # Local vars
+        cam_el = None
+        pass_el = None
+        layers_el = None
+        lights_el = None
+        skipped_layers = 0
+
+        # Run _rd_get_settings(), and cancel saving if it returns an error
+        if self._rd_get_settings() is False:
+            _log.error('Unable to record scene state')
+            return
+
+        # Try to find the camera and pass in the config - If we can't, add them
+        cam_el = self._rd_cfg_root.find("./*[@realName='" + self._tgt_cam + "']")
+        if cam_el is None:
+            _log.info(self._tgt_cam + ' not in config file - adding it now')
+            cam_el = _ETree.SubElement(self._rd_cfg_root, _xml_tag_cleaner(self._tgt_cam), {'realName': self._tgt_cam})
+        else:
+            pass_el = cam_el.find("./*[@realName='" + self._tgt_pass + "']")
+
+        if pass_el is None:
+            pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass), {'realName': self._tgt_pass})
+
+        # Clear the target pass
+        for child_el in list(pass_el):
+            pass_el.remove(child_el)
+
+        # Populate pass with data
+        # LAYERS
+        layers_el = _ETree.SubElement(pass_el, 'LAYERS')  # Create LAYERS element
+        for i in range(_rt.layerManager.count):
+            _layer = _rt.layerManager.getLayer(i)  # Declare this in the loop, so that it's local to each iteration
+
+            # Print error message and skip if Layer name is invalid
+            if _is_ascii(_layer.name) is False:
+                _log.warning('Skipping ' + _xml_tag_cleaner(_layer.name) + '  -  It contains non-ASCII characters')
+                skipped_layers += 1
+                continue
+
+            _ETree.SubElement(layers_el, _xml_tag_cleaner(_layer.name), {'realName': _layer.name,
+                                                                         'enabled': str(_layer.on)})
+            _log.debug(str(_layer.name) + ' is ' + str(_layer.on))
+
+        if skipped_layers > 0:
+            _log.warning('Skipped ' + str(skipped_layers) + ' layers')
+
+        self._rd_save_to_disk()
 
     def rd_load(self):
         _log.debug('rd_load')
-        return
 
     # Resets
-    def rd_reset_pass(self):
+    def rd_reset_pass(self, cam_el=None, pass_el=None, save=True):
+        """
+        Clears config data for the current camera pass.  If not passed kwargs, it will get the target pass from
+        GUI settings.
+        :param cam_el: An ETree element object for the target Camera.
+        :param pass_el: An ETree element object for the target Pass.
+        :param save: Whether or not to re-save the config after running.  Defaults to True.
+        :return: Bool indicating success or failure.
+        """
         _log.debug('rd_reset_pass')
-        return
+
+        # If we weren't passed a target camera and pass element, get them
+        if cam_el is None or pass_el is None:
+            # Run _rd_get_settings(), and cancel resetting if it returns an error
+            if self._rd_get_settings() is False:
+                _log.error('Unable to reset selected pass')
+                return False
+
+            cam_el = self._rd_cfg_root.find("./*[@realName='" + self._tgt_cam + "']")
+            pass_el = cam_el.find("./*[@realName='" + self._tgt_pass + "']")
+
+            if pass_el is None:
+                _log.warning('Pass ' + self._tgt_pass + ' not found!')
+                return False
+
+        _log.info('Resetting ' + cam_el.attrib['realName'] + pass_el.attrib['realName'])
+        cam_el.remove(pass_el)
+
+        if save is True:
+            return self._rd_save_to_disk()
+        else:
+            return True
 
     def rd_reset_cam(self):
         _log.debug('rd_reset_cam')
-        return
 
     def rd_reset_all(self):
         _log.debug('rd_reset_all')
 
-    # Active Viewport handler
-    def cam_change_handler(self):
-        _log.debug('cam_change_handler')
-        this_cam = self._rt.getActiveCamera()
-        if self._camera != this_cam:
-            _log.debug('cam_change_handler - Updating')
-            self._camera = this_cam
-            if self._camera is not None:
-                self._rd_cam_le.setText(this_cam.name)
-            else:
-                self._rd_cam_le.setText('None')
+    # QtWidget
+    def closeEvent(self, event):
+        """
+        Called on GUI close, end of program.
+        :param event: QtEvent Object
+        :return: None
+        """
+        _log.debug('closeEvent')
+        _log.info('Closing RadishUI')
 
-        return
+        try:
+            MaxPlus.NotificationManager.Unregister(self._active_camera_callback)
+            _log.info('Successfully unregistered _active_camera_callback')
+        except:
+            _log.warning('Could not unregister _active_camera_callback')
+
+        try:
+            _log.info('Shutting down Radish logger...')
+            # Shut down handlers
+            logging.shutdown()
+            # Remove handlers
+            for handler in list(_log.handlers):
+                _log.removeHandler(handler)
+        except:
+            _log.warning('Could not shutdown Radish logger')
+
+        event.accept()
 
 
 # --------------------
 #    Dialog Setup
 # --------------------
 
-# Destroys instances of the dialog before recreating it
-# This has to go before re-declaration of the ui variable
-try:  # noinspection PyBroadException
-    _log.info('Closing old instances of UI...')
-    ui.close()  # noinspection PyUnboundLocalVariable
-except:
-    _log.info('No old instances found')
-    pass
-
 # Path to UI file
 uif = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + "\\radish_standalone.ui"
 
 app = MaxPlus.GetQMaxMainWindow()
-ui = RadishUI(uif, rt, app)
+ui = RadishUI(uif, _rt, app)
 
 # Punch it
 ui.show()
-log.info('UI created')
-
-# --------------------
-#  Cam Change Handler
-# --------------------
-rt.callbacks.removeScripts(rt.name("viewportChange"), id=rt.name("bdf_cameraChange"))
-rt.callbacks.addScript(rt.name("viewportChange"),
-                       "python.execute \"ui.cam_change_handler()\"",
-                       id=rt.name("bdf_cameraChange"))
+_log.info('GUI created')

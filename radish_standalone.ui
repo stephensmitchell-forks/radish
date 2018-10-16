@@ -153,11 +153,23 @@
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
+           <property name="maximumSize">
+            <size>
+             <width>150</width>
+             <height>16777215</height>
+            </size>
+           </property>
            <property name="editable">
             <bool>false</bool>
            </property>
            <property name="currentText">
             <string>None</string>
+           </property>
+           <property name="maxVisibleItems">
+            <number>25</number>
+           </property>
+           <property name="sizeAdjustPolicy">
+            <enum>QComboBox::AdjustToContents</enum>
            </property>
            <item>
             <property name="text">
