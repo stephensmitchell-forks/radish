@@ -51,7 +51,7 @@ except:
 # --------------------
 
 _log = logging.getLogger("Radish")
-_log.setLevel(logging.DEBUG)
+_log.setLevel(logging.INFO)
 # Clean up old handlers before re-initializing
 # Important, as the user may re-launch this script without re-launching the parent program
 # if _log.handlers:
@@ -226,7 +226,7 @@ class RadishUI(QtW.QDialog):
         :param code: Callback Code
         :return: None
         """
-        _log.debug('_active_camera_handler called with event code ' + str(code))
+        _log.debug('_active_camera_handler called with event code %s' % str(code))
         this_cam = self._rt.getActiveCamera()
         if self._active_cam != this_cam:
             _log.info('_active_camera_handler - Updating')
@@ -262,7 +262,7 @@ class RadishUI(QtW.QDialog):
         self._rd_cfg_path = os.path.dirname(__file__) + '\\radishConfig.xml'
         # noinspection PyBroadException
         try:
-            _log.info('Trying to read config file ' + self._rd_cfg_path + '...')
+            _log.info('Trying to read config file %s...' % self._rd_cfg_path)
             self._rd_cfg = _ETree.parse(self._rd_cfg_path)
             self._rd_cfg_root = self._rd_cfg.getroot()
             # Display config file path in GUI
@@ -283,10 +283,10 @@ class RadishUI(QtW.QDialog):
             self._rd_status_label.setText("Config file is corrupt, and can't be read!  Backing it up...")
             try:
                 # First remove old .BAK, if it exists
-                os.remove(self._rd_cfg_path + '.BAK')
+                os.remove('%s.BAK' % self._rd_cfg_path)
             except OSError:
                 pass
-            os.rename(self._rd_cfg_path, self._rd_cfg_path + '.BAK')
+            os.rename(self._rd_cfg_path, '%s.BAK' % self._rd_cfg_path)
             self._rd_cfg_setup()
         except:
             _log.error('Unknown error while reading config file')
@@ -310,6 +310,8 @@ class RadishUI(QtW.QDialog):
             _log.error('Camera name must be a valid ASCII string!  Clean your shit up!')
             self._rd_status_label.setText('Camera name must be a valid ASCII string!  Clean your shit up!')
             settings_valid = False
+        if self._tgt_cam == '':
+            self._tgt_cam = 'BLANK'
 
         # Pass
         if self._rd_pass_cb.currentIndex() == self._passes['custom']:
@@ -320,8 +322,10 @@ class RadishUI(QtW.QDialog):
             _log.error('Pass name must be a valid ASCII string!  Cut it out!')
             self._rd_status_label.setText('Pass name must be a valid ASCII string!  Cut it out!')
             settings_valid = False
+        if self._tgt_pass == '':
+            self._tgt_pass = 'BLANK'
 
-        _log.debug('Cam: ' + self._tgt_cam + '  ---   Pass: ' + self._tgt_pass)
+        _log.debug('Cam: %s  ---   Pass: %s' % (self._tgt_cam, self._tgt_pass))
 
         return settings_valid
 
@@ -361,13 +365,13 @@ class RadishUI(QtW.QDialog):
             return
 
         # Try to find the camera and pass in the config - If we can't, add them
-        cam_el = self._rd_cfg_root.find("./*[@realName='" + self._tgt_cam + "']")
+        cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
         if cam_el is None:
-            _log.info(self._tgt_cam + ' not in config file - adding it now')
+            _log.info('%s is not in config file - adding it now' % self._tgt_cam)
             cam_el = _ETree.SubElement(self._rd_cfg_root, _xml_tag_cleaner(self._tgt_cam), {'realName': self._tgt_cam})
             pass_el = None
         else:
-            pass_el = cam_el.find("./*[@realName='" + self._tgt_pass + "']")
+            pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
         if pass_el is None:
             pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass), {'realName': self._tgt_pass})
 
@@ -389,22 +393,26 @@ class RadishUI(QtW.QDialog):
 
             # Print error message and skip if Layer name is invalid
             if _is_ascii(layer.name) is False:
-                _log.warning('Skipping ' + _xml_tag_cleaner(layer.name) + '  -  It contains non-ASCII characters')
+                try:
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % layer.name)
+                except UnicodeEncodeError:
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(layer.name))
                 layers_skipped += 1
                 continue
 
             _ETree.SubElement(layers_el, _xml_tag_cleaner(layer.name), {'realName': layer.name,
                                                                         'enabled': str(layer.on)})
-            _log.debug(str(layer.name) + ' is ' + str(layer.on))
+            _log.debug('%s is %s' % (layer.name, layer.on))
 
         if layers_skipped > 0:
-            _log.warning('Skipped ' + str(layers_skipped) + ' layers')
+            _log.warning('Skipped %d layers' % layers_skipped)
 
         # ----------
         #   LIGHTS
         # ----------
         lights_el = _ETree.SubElement(pass_el, 'LIGHTS')  # Create LIGHTS element
         lights_ignored = []
+        lights_skipped = 0
 
         # Iterate over all lights, print their properties
         for light in _rt.lights:
@@ -414,13 +422,17 @@ class RadishUI(QtW.QDialog):
 
             # Print error message if Light name is invalid
             if not _is_ascii(light.name):
-                _log.warning('Skipping ' + _xml_tag_cleaner(light.name) + '  -  It contains non-ASCII characters')
+                try:
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % light.name)
+                except UnicodeEncodeError:
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(light.name))
+                lights_skipped += 1
                 continue
 
             # Print instances, if there are any
             tgt_instances = _get_instances(light)
             if len(tgt_instances) > 1:
-                _log.debug('Found ' + str(len(tgt_instances)) + ' instances of ' + light.name)
+                _log.debug('Found %d instances of %s' % (len(tgt_instances), light.name))
                 for i in tgt_instances:
                     lights_ignored.append(i.name)
 
@@ -433,6 +445,12 @@ class RadishUI(QtW.QDialog):
             if _rt.isProperty(light, 'enabled'):
                 light_el.set('enabled', str(light.enabled))
 
+        if lights_skipped > 0:
+            _log.warning('Skipped %d lights' % lights_skipped)
+
+        # -----------------------
+        # Save the updated config
+        # -----------------------
         self._rd_save_to_disk()
 
     def rd_load(self):
@@ -457,14 +475,14 @@ class RadishUI(QtW.QDialog):
                 _log.error('Unable to reset selected pass')
                 return False
 
-            cam_el = self._rd_cfg_root.find("./*[@realName='" + self._tgt_cam + "']")
-            pass_el = cam_el.find("./*[@realName='" + self._tgt_pass + "']")
+            cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
+            pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
 
             if pass_el is None:
-                _log.warning('Pass ' + self._tgt_pass + ' not found!')
+                _log.warning('Pass %s not found!' % self._tgt_pass)
                 return False
 
-        _log.info('Resetting ' + cam_el.attrib['realName'] + pass_el.attrib['realName'])
+        _log.info('Resetting %s %s' % (cam_el.attrib['realName'], pass_el.attrib['realName']))
         # Clear the target pass
         for child_el in list(pass_el):
             pass_el.remove(child_el)

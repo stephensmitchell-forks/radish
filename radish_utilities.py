@@ -86,7 +86,6 @@ def get_instances(x):
     :param x: The input object
     :return: An array of Max objects.  If there are no instances, it will only contain the source object.
     """
-    max_out('DEBUG: get_instances(' + x.name + ')')
     instanceNames = maxScript('InstanceMgr.GetInstances $' + x.name + """ &instances
     out = #()
     for i in instances do append out i.name
@@ -129,7 +128,11 @@ def xml_tag_cleaner(el):
     """
     output = el
 
-    # Low hanging fruit - strip leading and trailing whitespace
+    # If the string is blank, replace it with 'BLANK'
+    if output == '':
+        output = 'BLANK'
+
+    # Strip leading and trailing whitespace
     output = output.strip()
 
     # Replace all non-alphanumeric characters with '_'
