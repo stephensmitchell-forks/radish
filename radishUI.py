@@ -51,7 +51,7 @@ except:
 # --------------------
 
 _log = logging.getLogger("Radish")
-_log.setLevel(logging.INFO)
+_log.setLevel(logging.DEBUG)
 # Clean up old handlers before re-initializing
 # Important, as the user may re-launch this script without re-launching the parent program
 # if _log.handlers:
@@ -357,12 +357,17 @@ class RadishUI(QtW.QDialog):
 
     # Save / Load
     def rd_save(self):
+        """
+        Save the current scene state to the config file.  If there's already an entry for this camera pass,
+        clear it first.  If there isn't, create one.
+        :return: Bool indicating success or failure.
+        """
         _log.debug('rd_save')
 
         # Run _rd_get_settings(), and cancel saving if it returns an error
         if self._rd_get_settings() is False:
             _log.error('Unable to record scene state')
-            return
+            return False
 
         # Try to find the camera and pass in the config - If we can't, add them
         cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
@@ -401,7 +406,7 @@ class RadishUI(QtW.QDialog):
                 continue
 
             _ETree.SubElement(layers_el, _xml_tag_cleaner(layer.name), {'realName': layer.name,
-                                                                        'enabled': str(layer.on)})
+                                                                        'on': str(layer.on)})
             _log.debug('%s is %s' % (layer.name, layer.on))
 
         if layers_skipped > 0:
@@ -451,10 +456,64 @@ class RadishUI(QtW.QDialog):
         # -----------------------
         # Save the updated config
         # -----------------------
-        self._rd_save_to_disk()
+        return self._rd_save_to_disk()
 
     def rd_load(self):
+        """
+        Load the config for the current camera pass and apply it to the scene.
+        :return: Bool indicating success or failure.
+        """
         _log.debug('rd_load')
+
+        # Run _rd_get_settings(), and cancel loading if it returns an error
+        if self._rd_get_settings() is False:
+            _log.error('Unable to load scene state')
+            return False
+
+        # Try to find the camera and pass in the config - If we can't, error out
+        cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
+        if cam_el is None:
+            _log.error('Camera not found in config!')
+            return False
+        else:
+            pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
+        if pass_el is None:
+            _log.error('Pass not found in config!')
+            return False
+
+        layers_el = pass_el.find('LAYERS')
+        lights_el = pass_el.find('LIGHTS')
+
+        # -----------------------
+        #   Restore pass state
+        # -----------------------
+
+        # ----------
+        #   LAYERS
+        # ----------
+        for layer in layers_el:
+            _log.debug('Layer %s is Visible: %s' % (layer.attrib['realName'],
+                                                    layer.attrib['on']))
+            _rt.layerManager.getLayerFromName(layer.attrib['realName']).on = _xml_get_bool(layer.attrib['on'])
+
+        _log.info('%d Layers restored' % len(layers_el))
+
+        # ----------
+        #   LIGHTS
+        # ----------
+        for light in lights_el:
+            _log.debug('Light %s (and %s instances) is On/Enabled: %s/%s' % (light.attrib['realName'],
+                                                                             light.attrib['instanceCount'],
+                                                                             light.attrib['on'],
+                                                                             light.attrib['enabled']))
+            light_obj = _rt.getNodeByName(light.attrib['realName'])
+            if light.attrib['on'] is not None:
+                light_obj.on = _xml_get_bool(light.attrib['on'])
+            if light.attrib['enabled'] is not None:
+                light_obj.enabled = _xml_get_bool(light.attrib['enabled'])
+
+        _log.info('%d Unique Lights restored' % len(lights_el))
+        return True
 
     # Resets
     def rd_reset_pass(self, cam_el=None, pass_el=None, save=True):
