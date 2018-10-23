@@ -86,10 +86,15 @@ def get_instances(x):
     :param x: The input object
     :return: An array of Max objects.  If there are no instances, it will only contain the source object.
     """
-    instanceNames = maxScript('InstanceMgr.GetInstances $' + x.name + """ &instances
+    # Check for " and ' in object name, error out if they're there
+    if '"' in x.name or "'" in x.name:
+        return False
+
+    instanceNames = maxScript("""obj = getNodeByName @"%s" exact:true
+    InstanceMgr.GetInstances obj &instances
     out = #()
     for i in instances do append out i.name
-    out""").Get()
+    out""" % x.name).Get()
 
     instanceObjs = []
     for i in instanceNames:

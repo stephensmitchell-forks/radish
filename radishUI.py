@@ -52,13 +52,6 @@ except:
 
 _log = logging.getLogger("Radish")
 _log.setLevel(logging.DEBUG)
-# Clean up old handlers before re-initializing
-# Important, as the user may re-launch this script without re-launching the parent program
-# if _log.handlers:
-#     _log.warning('Old Radish logger detected: resetting')
-#     for handler in list(_log.handlers):
-#         _log.removeHandler(handler)
-# Add custom handler
 _log.addHandler(_radish_log_handler)
 
 _log.info('Radish Logger active')
@@ -377,11 +370,10 @@ class RadishUI(QtW.QDialog):
             pass_el = None
         else:
             pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
-        if pass_el is None:
-            pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass), {'realName': self._tgt_pass})
-
-        # Clear the target pass
-        self.rd_reset_pass(cam_el, pass_el, save=False)
+        if pass_el is not None:
+            # If there's already data on this pass, reset it
+            self.rd_reset_pass(cam_el, pass_el, save=False)
+        pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass), {'realName': self._tgt_pass})
 
         # -----------------------
         # Populate pass with data
@@ -435,8 +427,13 @@ class RadishUI(QtW.QDialog):
                 continue
 
             # Print instances, if there are any
+            _log.debug('Checking light %s' % light.name)
             tgt_instances = _get_instances(light)
-            if len(tgt_instances) > 1:
+            # Check if there was an error, and skip if there was
+            if tgt_instances is False:
+                _log.warning('Skipping %s  -  It contains Quotation or Apostrophe chars!' % light.name)
+                continue
+            elif len(tgt_instances) > 1:
                 _log.debug('Found %d instances of %s' % (len(tgt_instances), light.name))
                 for i in tgt_instances:
                     lights_ignored.append(i.name)
@@ -543,15 +540,20 @@ class RadishUI(QtW.QDialog):
 
         _log.info('Resetting %s %s' % (cam_el.attrib['realName'], pass_el.attrib['realName']))
         # Clear the target pass
-        for child_el in list(pass_el):
-            pass_el.remove(child_el)
+        cam_el.remove(pass_el)
 
         if save is True:
             return self._rd_save_to_disk()
         else:
             return True
 
-    def rd_reset_cam(self):
+    def rd_reset_cam(self, cam_el=None, save=True):
+        """
+        Clears config data for the current camera.  If not passed kwargs, it will get the camera from GUI settings.
+        :param cam_el: An ETree element object for the target Camera.
+        :param save: Whether or not to re-save the config after running.  Defaults to True.
+        :return: Bool indicating success or failure.
+        """
         _log.debug('rd_reset_cam')
 
     def rd_reset_all(self):
