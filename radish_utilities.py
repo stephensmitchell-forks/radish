@@ -82,7 +82,7 @@ def pad_string(str1, str2, padding, x):
 
 def get_instances(x):
     """
-    A short MaxScript snippet to get instances of an object and return their objects in an array.
+    Get instances of an object and return their objects in an array.
     :param x: The input object
     :return: An array of Max objects.  If there are no instances, it will only contain the source object.
     """
@@ -90,15 +90,8 @@ def get_instances(x):
     if '"' in x.name or "'" in x.name:
         return False
 
-    instanceNames = maxScript("""obj = getNodeByName @"%s" exact:true
-    InstanceMgr.GetInstances obj &instances
-    out = #()
-    for i in instances do append out i.name
-    out""" % x.name).Get()
-
     instanceObjs = []
-    for i in instanceNames:
-        instanceObjs.append(rt.getNodeByName(i))
+    rt.InstanceMgr.GetInstances(x, pymxs.mxsreference(instanceObjs))
 
     return instanceObjs
 

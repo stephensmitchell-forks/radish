@@ -51,7 +51,7 @@ except:
 # --------------------
 
 _log = logging.getLogger("Radish")
-_log.setLevel(logging.DEBUG)
+_log.setLevel(logging.INFO)
 _log.addHandler(_radish_log_handler)
 
 _log.info('Radish Logger active')
@@ -366,14 +366,16 @@ class RadishUI(QtW.QDialog):
         cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
         if cam_el is None:
             _log.info('%s is not in config file - adding it now' % self._tgt_cam)
-            cam_el = _ETree.SubElement(self._rd_cfg_root, _xml_tag_cleaner(self._tgt_cam), {'realName': self._tgt_cam})
+            cam_el = _ETree.SubElement(self._rd_cfg_root, _xml_tag_cleaner(self._tgt_cam), {'realName': self._tgt_cam,
+                                                                                            'type': 'CAM'})
             pass_el = None
         else:
             pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
         if pass_el is not None:
             # If there's already data on this pass, reset it
             self.rd_reset_pass(cam_el, pass_el, save=False)
-        pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass), {'realName': self._tgt_pass})
+        pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass), {'realName': self._tgt_pass,
+                                                                               'type': 'PASS'})
 
         # -----------------------
         # Populate pass with data
@@ -426,12 +428,13 @@ class RadishUI(QtW.QDialog):
                 lights_skipped += 1
                 continue
 
-            # Print instances, if there are any
+            # Get instances, if there are any
             _log.debug('Checking light %s' % light.name)
             tgt_instances = _get_instances(light)
             # Check if there was an error, and skip if there was
             if tgt_instances is False:
                 _log.warning('Skipping %s  -  It contains Quotation or Apostrophe chars!' % light.name)
+                lights_skipped += 1
                 continue
             elif len(tgt_instances) > 1:
                 _log.debug('Found %d instances of %s' % (len(tgt_instances), light.name))
@@ -532,6 +535,11 @@ class RadishUI(QtW.QDialog):
                 return False
 
             cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
+
+            if cam_el is None:
+                _log.error('Cam %s not found!' % self._tgt_cam)
+                return False
+
             pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
 
             if pass_el is None:
@@ -556,8 +564,46 @@ class RadishUI(QtW.QDialog):
         """
         _log.debug('rd_reset_cam')
 
-    def rd_reset_all(self):
+        # If we weren't passed a target camera, get it
+        if cam_el is None:
+            # Run _rd_get_settings(), and cancel resetting if it returns an error
+            if self._rd_get_settings() is False:
+                _log.error('Unable to reset selected camera')
+                return False
+
+            cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
+
+            if cam_el is None:
+                _log.warning('Cam %s not found!' % self._tgt_cam)
+                return False
+
+        _log.info('Resetting %s' % cam_el.attrib['realName'])
+        # Clear the target camera
+        self._rd_cfg_root.remove(cam_el)
+
+        if save is True:
+            return self._rd_save_to_disk()
+        else:
+            return True
+
+    def rd_reset_all(self, save=True):
+        """
+        Entirely clears the loaded config file, except for the root node.
+        :param save: Whether or not to re-save the config after running.  Defaults to True.
+        :return: Bool indicating success or failure
+        """
         _log.debug('rd_reset_all')
+
+        _log.info('Resetting entire config...')
+        # Remove all children of _rd_cfg_root
+        for child in list(self._rd_cfg_root):
+            _log.debug('Removing %s data' % child.attrib['realName'])
+            self._rd_cfg_root.remove(child)
+
+        if save is True:
+            return self._rd_save_to_disk()
+        else:
+            return True
 
     # QtWidget
     def closeEvent(self, event):
