@@ -247,21 +247,6 @@
         <property name="toolTip">
          <string>&lt;html&gt;&lt;p&gt;Select which pass you'd like to Save or Load.&lt;/p&gt;&lt;/html&gt;</string>
         </property>
-        <item>
-         <property name="text">
-          <string>Beauty Pass</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Prepass</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Custom...</string>
-         </property>
-        </item>
        </widget>
       </item>
       <item>

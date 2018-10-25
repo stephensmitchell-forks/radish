@@ -144,7 +144,7 @@ class RadishUI(QtW.QDialog):
         self._rd_cam_chk.stateChanged.connect(self._rd_cam_override)
 
         # Passes
-        self._rd_pass_cb.currentIndexChanged.connect(self._rd_pass_override)
+        self._rd_pass_cb.currentIndexChanged.connect(self._rd_pass_handler)
 
         # Save / Load
         self._rd_save_btn.clicked.connect(self.rd_save)
@@ -164,8 +164,8 @@ class RadishUI(QtW.QDialog):
         self._tgt_cam = None
         self._tgt_pass = None
 
-        # Stores indices for pass combobox
-        self._passes = {'beauty': 0, 'prepass': 1, 'custom': 2}
+        # Stores text for pass combobox
+        self._passes = {'beauty': 'Beauty', 'prepass': 'Pre-Pass', 'custom': 'Custom...'}
 
         # Stores current active viewport
         self._active_cam = self._rt.getActiveCamera()
@@ -231,23 +231,55 @@ class RadishUI(QtW.QDialog):
 
     # Passes
 
-    def _rd_pass_override(self):
+    def _rd_pass_handler(self):
         """
         Check the state of the pass combobox, if custom is selected unlock the input field for it.
         :return: None
         """
-        _log.debug('_rd_pass_override')
-        if self._rd_pass_cb.currentIndex() == self._passes['custom']:
+        _log.debug('_rd_pass_handler')
+        if self._rd_pass_cb.currentText() == self._passes['custom']:
             self._rd_pass_le.setEnabled(True)
         else:
             self._rd_pass_le.setEnabled(False)
+
+    def _rd_get_custom_passes(self):
+        """
+        Gets all custom passes listed in the config and returns them in a list.
+        :return: A list of pass names
+        """
+        _log.debug('_rd_get_custom_passes')
+        last_pass = self._rd_pass_cb.currentText()
+        output = []
+        passes = self._rd_cfg_root.findall("./*/*[@type='PASS']")
+
+        # Reset the CB items
+        while self._rd_pass_cb.count() > 0:
+            self._rd_pass_cb.removeItem(0)
+
+        self._rd_pass_cb.addItems([self._passes['beauty'],
+                                   self._passes['prepass'],
+                                   self._passes['custom']])
+
+        for name in passes:
+            name = name.attrib['realName']
+            if name not in output and name not in self._passes.values():
+                output.append(name)
+
+        self._rd_pass_cb.insertItems(2, output)
+
+        _log.info('last_pass = %s' % last_pass)
+        pass_index = self._rd_pass_cb.findText(last_pass)
+        if pass_index >= 0:
+            self._rd_pass_cb.setCurrentIndex(pass_index)
+
+        return
 
     # Info
 
     def _rd_cfg_setup(self):
         """
         Handles finding and setting up the Radish config file, and assigning the
-        _rd_cfg, _rd_cfg_root, _rd_cfg_path params.
+        _rd_cfg, _rd_cfg_root, _rd_cfg_path params.  Also populates the pass list with custom passes.
         :return: None
         """
         _log.debug('_rd_cfg_setup')
@@ -261,6 +293,8 @@ class RadishUI(QtW.QDialog):
             # Display config file path in GUI
             self._rd_config_le.setText(self._rd_cfg_path)
             self._rd_status_label.setText('Config file found')
+            # Get any custom passes from the config
+            self._rd_get_custom_passes()
         except IOError:
             _log.info('Config not found.  Generating one instead')
             self._rd_cfg = _ETree.ElementTree(_ETree.Element('root'))
@@ -285,6 +319,7 @@ class RadishUI(QtW.QDialog):
             _log.error('Unknown error while reading config file')
 
     # Misc internal logic
+
     def _rd_get_settings(self):
         """
         Get all settings from dialog window and update class properties.
@@ -307,10 +342,10 @@ class RadishUI(QtW.QDialog):
             self._tgt_cam = 'BLANK'
 
         # Pass
-        if self._rd_pass_cb.currentIndex() == self._passes['custom']:
-            self._tgt_pass = self._rd_pass_le.text().upper()
+        if self._rd_pass_cb.currentText() == self._passes['custom']:
+            self._tgt_pass = self._rd_pass_le.text()
         else:
-            self._tgt_pass = self._rd_pass_cb.currentText().upper()
+            self._tgt_pass = self._rd_pass_cb.currentText()
         if _is_ascii(self._tgt_pass) is False:
             _log.error('Pass name must be a valid ASCII string!  Cut it out!')
             self._rd_status_label.setText('Pass name must be a valid ASCII string!  Cut it out!')
@@ -456,6 +491,7 @@ class RadishUI(QtW.QDialog):
         # -----------------------
         # Save the updated config
         # -----------------------
+        self._rd_get_custom_passes()
         return self._rd_save_to_disk()
 
     def rd_load(self):
@@ -551,6 +587,7 @@ class RadishUI(QtW.QDialog):
         cam_el.remove(pass_el)
 
         if save is True:
+            self._rd_get_custom_passes()
             return self._rd_save_to_disk()
         else:
             return True
@@ -582,6 +619,7 @@ class RadishUI(QtW.QDialog):
         self._rd_cfg_root.remove(cam_el)
 
         if save is True:
+            self._rd_get_custom_passes()
             return self._rd_save_to_disk()
         else:
             return True
@@ -601,6 +639,7 @@ class RadishUI(QtW.QDialog):
             self._rd_cfg_root.remove(child)
 
         if save is True:
+            self._rd_get_custom_passes()
             return self._rd_save_to_disk()
         else:
             return True
