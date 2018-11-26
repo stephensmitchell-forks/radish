@@ -13,6 +13,7 @@ import MaxPlus
 
 # Misc
 import xml.etree.ElementTree as _ETree
+import datetime
 import logging
 import sys
 import os
@@ -123,6 +124,13 @@ class RadishUI(QtW.QDialog):
         self._rd_pass_cb = self.findChild(QtW.QComboBox, 'rd_selpass_cb')
         self._rd_pass_le = self.findChild(QtW.QLineEdit, 'rd_selpass_cust_le')
 
+        # Options
+        self._rd_opt_lights_chk = self.findChild(QtW.QCheckBox, 'rd_opt_lights_chk')
+        self._rd_opt_layers_chk = self.findChild(QtW.QCheckBox, 'rd_opt_layers_chk')
+        self._rd_opt_resolution_chk = self.findChild(QtW.QCheckBox, 'rd_opt_resolution_chk')
+        self._rd_opt_effects_chk = self.findChild(QtW.QCheckBox, 'rd_opt_effects_chk')
+        self._rd_opt_elements_chk = self.findChild(QtW.QCheckBox, 'rd_opt_elements_chk')
+
         # Save / Load
         self._rd_save_btn = self.findChild(QtW.QPushButton, 'rd_save_btn')
         self._rd_load_btn = self.findChild(QtW.QPushButton, 'rd_load_btn')
@@ -165,10 +173,19 @@ class RadishUI(QtW.QDialog):
         self._tgt_pass = None
 
         # Stores text for pass combobox
-        self._passes = {'beauty': 'Beauty', 'prepass': 'Pre-Pass', 'custom': 'Custom...'}
+        self._passes = {'beauty': 'Beauty',
+                        'prepass': 'Pre-Pass',
+                        'custom': 'Custom...'}
 
         # Stores current active viewport
         self._active_cam = self._rt.getActiveCamera()
+
+        # Stores current options, set by _rd_get_settings()
+        self._options = {'lights': None,
+                         'layers': None,
+                         'resolution': None,
+                         'effects': None,
+                         'elements': None}
 
         # Sets config file path and reads xml file.  Generate one if it doesn't exist.
         # This function also sets the _rd_cfg, _rd_cfg_root, and _rd_cfg_path params
@@ -244,17 +261,15 @@ class RadishUI(QtW.QDialog):
 
     def _rd_get_custom_passes(self):
         """
-        Gets all custom passes listed in the config and returns them in a list.
-        :return: A list of pass names
+        Populates the pass combobox with default values and any custom passes found in the config.
+        :return: None
         """
         _log.debug('_rd_get_custom_passes')
-        last_pass = self._rd_pass_cb.currentText()
         output = []
         passes = self._rd_cfg_root.findall("./*/*[@type='PASS']")
 
-        # Reset the CB items
-        while self._rd_pass_cb.count() > 0:
-            self._rd_pass_cb.removeItem(0)
+        # Reset the CB
+        self._rd_pass_cb.clear()
 
         self._rd_pass_cb.addItems([self._passes['beauty'],
                                    self._passes['prepass'],
@@ -267,12 +282,10 @@ class RadishUI(QtW.QDialog):
 
         self._rd_pass_cb.insertItems(2, output)
 
-        _log.info('last_pass = %s' % last_pass)
-        pass_index = self._rd_pass_cb.findText(last_pass)
+        _log.info('last_pass = %s' % self._tgt_pass)
+        pass_index = self._rd_pass_cb.findText(self._tgt_pass)
         if pass_index >= 0:
             self._rd_pass_cb.setCurrentIndex(pass_index)
-
-        return
 
     # Info
 
@@ -295,9 +308,10 @@ class RadishUI(QtW.QDialog):
             self._rd_status_label.setText('Config file found')
             # Get any custom passes from the config
             self._rd_get_custom_passes()
+
         except IOError:
             _log.info('Config not found.  Generating one instead')
-            self._rd_cfg = _ETree.ElementTree(_ETree.Element('root'))
+            self._rd_cfg = _ETree.ElementTree(_ETree.Element('ROOT'))
             self._rd_cfg_root = self._rd_cfg.getroot()
             _xml_indent(self._rd_cfg_root)
             self._rd_cfg.write(self._rd_cfg_path)
@@ -305,15 +319,22 @@ class RadishUI(QtW.QDialog):
             # Indicate new config file in GUI
             self._rd_config_le.setText(self._rd_cfg_path)
             self._rd_status_label.setText('No config found - Created new file at above address')
+            # Set up pass combobox
+            self._rd_get_custom_passes()
+
         except _ETree.ParseError:
-            _log.error("Config file is corrupt, and can't be read!  Backing it up and trying again...")
-            self._rd_status_label.setText("Config file is corrupt, and can't be read!  Backing it up...")
+            now = datetime.datetime.now()
+            timestamp = now.strftime("%y%m%d-%H%M")
+            backup_filepath = "%s.%s.BAK" % (self._rd_cfg_path, timestamp)
+            _log.error("Config file is corrupt, and can't be read!")
             try:
-                # First remove old .BAK, if it exists
-                os.remove('%s.BAK' % self._rd_cfg_path)
+                # Try to append config with timestamp - if we can't, that's because we backed up within the last minute
+                # and it should be safe to just delete current corrupt config.
+                os.rename(self._rd_cfg_path, backup_filepath)
+                _log.info("Config backed up to %s" % backup_filepath)
             except OSError:
-                pass
-            os.rename(self._rd_cfg_path, '%s.BAK' % self._rd_cfg_path)
+                os.remove(self._rd_cfg_path)
+                _log.warning("Unable to back up config - There is already one with this timestamp!")
             self._rd_cfg_setup()
         except:
             _log.error('Unknown error while reading config file')
@@ -353,7 +374,14 @@ class RadishUI(QtW.QDialog):
         if self._tgt_pass == '':
             self._tgt_pass = 'BLANK'
 
-        _log.debug('Cam: %s  ---   Pass: %s' % (self._tgt_cam, self._tgt_pass))
+        # Options
+        self._options['lights'] = self._rd_opt_lights_chk.isChecked()
+        self._options['layers'] = self._rd_opt_layers_chk.isChecked()
+        self._options['resolution'] = self._rd_opt_resolution_chk.isChecked()
+        self._options['effects'] = self._rd_opt_effects_chk.isChecked()
+        self._options['elements'] = self._rd_opt_elements_chk.isChecked()
+
+        _log.debug('Cam: %s  ---   Pass: %s  ---  Options: %s' % (self._tgt_cam, self._tgt_pass, self._options))
 
         return settings_valid
 
@@ -394,23 +422,23 @@ class RadishUI(QtW.QDialog):
 
         # Run _rd_get_settings(), and cancel saving if it returns an error
         if self._rd_get_settings() is False:
-            _log.error('Unable to record scene state')
+            _log.error('Unable to record scene state - _rd_get_settings() failed')
             return False
 
         # Try to find the camera and pass in the config - If we can't, add them
         cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
         if cam_el is None:
             _log.info('%s is not in config file - adding it now' % self._tgt_cam)
-            cam_el = _ETree.SubElement(self._rd_cfg_root, _xml_tag_cleaner(self._tgt_cam), {'realName': self._tgt_cam,
-                                                                                            'type': 'CAM'})
+            cam_el = _ETree.SubElement(self._rd_cfg_root, _xml_tag_cleaner(self._tgt_cam).upper(), {'realName': self._tgt_cam,
+                                                                                                    'type': 'CAM'})
             pass_el = None
         else:
             pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
         if pass_el is not None:
             # If there's already data on this pass, reset it
             self.rd_reset_pass(cam_el, pass_el, save=False)
-        pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass), {'realName': self._tgt_pass,
-                                                                               'type': 'PASS'})
+        pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass).upper(), {'realName': self._tgt_pass,
+                                                                                       'type': 'PASS'})
 
         # -----------------------
         # Populate pass with data
@@ -419,74 +447,154 @@ class RadishUI(QtW.QDialog):
         # ----------
         #   LAYERS
         # ----------
-        layers_el = _ETree.SubElement(pass_el, 'LAYERS')  # Create LAYERS element
-        layers_skipped = 0
+        # Recording Layers is straightforward - Just check the name to make sure it's valid, then save it to the config
+        if self._options['layers']:
+            layers_el = _ETree.SubElement(pass_el, 'LAYERS')  # Create LAYERS element
+            layers_skipped = 0
 
-        for i in range(_rt.layerManager.count):
-            layer = _rt.layerManager.getLayer(i)
+            for i in range(_rt.layerManager.count):
+                layer = _rt.layerManager.getLayer(i)
 
-            # Print error message and skip if Layer name is invalid
-            if _is_ascii(layer.name) is False:
-                try:
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % layer.name)
-                except UnicodeEncodeError:
+                # Validate name, skip and print error if it's not
+                if _is_ascii(layer.name) is False:
                     _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(layer.name))
-                layers_skipped += 1
-                continue
+                    layers_skipped += 1
+                    continue
 
-            _ETree.SubElement(layers_el, _xml_tag_cleaner(layer.name), {'realName': layer.name,
-                                                                        'on': str(layer.on)})
-            _log.debug('%s is %s' % (layer.name, layer.on))
+                _ETree.SubElement(layers_el, _xml_tag_cleaner(layer.name), {'realName': layer.name,
+                                                                            'on': str(layer.on)})
+                _log.debug('%s is %s' % (layer.name, layer.on))
 
-        if layers_skipped > 0:
-            _log.warning('Skipped %d layers' % layers_skipped)
+            if layers_skipped > 0:
+                _log.warning('Skipped %d layers' % layers_skipped)
 
         # ----------
         #   LIGHTS
         # ----------
-        lights_el = _ETree.SubElement(pass_el, 'LIGHTS')  # Create LIGHTS element
-        lights_ignored = []
-        lights_skipped = 0
+        # Recording Lights is a bit more complicated - We have to account for instanced objects and variation in object
+        # properties as well as name validation.
+        # Get all the scene lights, then store each light, its instances, and relevant properties to save state.
+        # Skip if their name is invalid, or if it's already been recorded (usually as an instance)
+        if self._options['lights']:
+            lights_el = _ETree.SubElement(pass_el, 'LIGHTS')  # Create LIGHTS element
+            lights_ignored = []
+            lights_skipped = 0
 
-        # Iterate over all lights, print their properties
-        for light in _rt.lights:
-            # Skip this obj if it's in the ignore list
-            if light.name in lights_ignored:
-                continue
+            # Iterate over all lights
+            for light in _rt.lights:
+                # Skip if it's in the ignore list
+                if light.name in lights_ignored:
+                    continue
 
-            # Print error message if Light name is invalid
-            if not _is_ascii(light.name):
-                try:
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % light.name)
-                except UnicodeEncodeError:
+                # Validate name, skip and print error if it's not
+                if not _is_ascii(light.name):
                     _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(light.name))
-                lights_skipped += 1
-                continue
+                    lights_skipped += 1
+                    continue
 
-            # Get instances, if there are any
-            _log.debug('Checking light %s' % light.name)
-            tgt_instances = _get_instances(light)
-            # Check if there was an error, and skip if there was
-            if tgt_instances is False:
-                _log.warning('Skipping %s  -  It contains Quotation or Apostrophe chars!' % light.name)
-                lights_skipped += 1
-                continue
-            elif len(tgt_instances) > 1:
-                _log.debug('Found %d instances of %s' % (len(tgt_instances), light.name))
-                for i in tgt_instances:
-                    lights_ignored.append(i.name)
+                # Get instances, if there are any
+                _log.debug('Checking light %s' % light.name)
+                light_instances = _get_instances(light)
+                # Check if there was an error, and skip if there was
+                if light_instances is False:
+                    _log.warning('Skipping %s  -  It contains Quotation or Apostrophe chars!' % light.name)
+                    lights_skipped += 1
+                    continue
 
-            # Create entry for this light in XML object
-            light_el = _ETree.SubElement(lights_el, _xml_tag_cleaner(light.name), {'realName': light.name,
-                                                                                   'instanceCount': str(len(tgt_instances) - 1)})
-            # Check if this light has an "on" or "enabled" property - save their state to the XML object if they do
-            if _rt.isProperty(light, 'on'):
-                light_el.set('on', str(light.on))
-            if _rt.isProperty(light, 'enabled'):
-                light_el.set('enabled', str(light.enabled))
+                # Create entry for this light in XML object
+                light_el = _ETree.SubElement(lights_el, _xml_tag_cleaner(light.name), {'realName': light.name,
+                                                                                       'instanceCount': str(len(light_instances) - 1)})
+                # Check if this light has an "on" or "enabled" property - save their state to the XML object if they do
+                if _rt.isProperty(light, 'on'):
+                    light_el.set('on', str(light.on))
+                if _rt.isProperty(light, 'enabled'):
+                    light_el.set('enabled', str(light.enabled))
 
-        if lights_skipped > 0:
-            _log.warning('Skipped %d lights' % lights_skipped)
+                # Create sub-elements for instances of this light
+                # Also add instances to lights_ignored, so we don't redundantly save them
+                if len(light_instances) > 1:
+                    _log.debug('Found %d instances of %s' % (len(light_instances), light.name))
+                    for i in light_instances:
+                        if not _is_ascii(i.name):
+                            _log.warning('Skipping instance %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(i.name))
+                            lights_skipped += 1
+                            continue
+                        if i.name == light.name:  # The instance list includes the current light - skip it
+                            continue
+                        _ETree.SubElement(light_el, _xml_tag_cleaner(i.name), {'realName': i.name})
+                        lights_ignored.append(i.name)
+
+            if lights_skipped > 0:
+                _log.warning('Skipped %d lights' % lights_skipped)
+
+        # --------------
+        #   RESOLUTION
+        # --------------
+        # Just grab the render resolution from Max's global variables
+        if self._options['resolution']:
+            _log.debug('Render Resolution: %dx%d' % (_rt.renderWidth, _rt.renderHeight))
+            _ETree.SubElement(pass_el, 'RESOLUTION', {'width': str(_rt.renderWidth),
+                                                      'height': str(_rt.renderHeight)})
+
+        # -----------
+        #   EFFECTS
+        # -----------
+        # Get number of atmospheric effects from a Max global, record their name and state
+        if self._options['effects']:
+            effects_el = _ETree.SubElement(pass_el, 'EFFECTS')
+            effects_skipped = 0
+
+            # Note that index starts at 1, not 0!  Thanks, Autodesk!
+            for i in range(1, (_rt.numAtmospherics + 1)):
+                effect = _rt.getAtmospheric(i)
+
+                # Validate name, skip and print error if it's not
+                if not _is_ascii(effect.name):
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(effect.name))
+                    effects_skipped += 1
+                    continue
+
+                _ETree.SubElement(effects_el, _xml_tag_cleaner(effect.name), {'realName': effect.name,
+                                                                              'isActive': str(_rt.isActive(effect))})
+                _log.debug('Effect %s is %s' % (effect.name, _rt.isActive(effect)))
+
+            if effects_skipped > 0:
+                _log.warning('Skipped %d effects' % effects_skipped)
+
+        # ------------
+        #   ELEMENTS
+        # ------------
+        # Get number of render elements from the RenderElementMgr, record their name and state
+        # Also log a warning if we detect multiple elements with the same name, as this will cause issues while loading
+        # Since we aren't changing settings, we don't have to bother closing the Render Settings dialog
+        if self._options['elements']:
+            elements_el = _ETree.SubElement(pass_el, 'ELEMENTS')
+            elements_list = []
+            elements_skipped = 0
+            reMgr = _rt.maxOps.getCurRenderElementMgr()
+
+            # Note that index starts at 0 this time.  Thanks, Autodesk!
+            for i in range(reMgr.NumRenderElements()):
+                element = reMgr.GetRenderElement(i)
+
+                # Validate name, skip and print error if it's not
+                if not _is_ascii(element.elementName):
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(element.elementName))
+                    elements_skipped += 1
+                    continue
+
+                _ETree.SubElement(elements_el, _xml_tag_cleaner(element.elementName), {'realName': element.elementName,
+                                                                                       'enabled': str(element.enabled)})
+                _log.debug('Element %s is %s' % (element.elementName, element.enabled))
+
+                if element.elementName in elements_list:
+                    _log.warning('There are multiple Render Elements named %s!  '
+                                 'They will behave unpredictably when loaded!' % element.elementName)
+                else:
+                    elements_list.append(element.elementName)
+
+            if elements_skipped > 0:
+                _log.warning('Skipped %d elements' % elements_skipped)
 
         # -----------------------
         # Save the updated config
@@ -499,11 +607,14 @@ class RadishUI(QtW.QDialog):
         Load the config for the current camera pass and apply it to the scene.
         :return: Bool indicating success or failure.
         """
+        # TODO: Add ability to restore saved resolution
+        # TODO: Add ability to restore state of saved effects
+        # TODO: Add ability to restore state of saved render elements
         _log.debug('rd_load')
 
         # Run _rd_get_settings(), and cancel loading if it returns an error
         if self._rd_get_settings() is False:
-            _log.error('Unable to load scene state')
+            _log.error('Unable to load scene state - _rd_get_settings() failed')
             return False
 
         # Try to find the camera and pass in the config - If we can't, error out
@@ -527,28 +638,54 @@ class RadishUI(QtW.QDialog):
         # ----------
         #   LAYERS
         # ----------
-        for layer in layers_el:
-            _log.debug('Layer %s is Visible: %s' % (layer.attrib['realName'],
-                                                    layer.attrib['on']))
-            _rt.layerManager.getLayerFromName(layer.attrib['realName']).on = _xml_get_bool(layer.attrib['on'])
+        if self._options['layers'] and layers_el is not None:
+            layers_skipped = 0
 
-        _log.info('%d Layers restored' % len(layers_el))
+            for tgt_layer in layers_el:
+                layer = _rt.layerManager.getLayerFromName(tgt_layer.attrib['realName'])
+
+                # Check if this layer is in the current scene
+                if layer is None:
+                    _log.warning('Layer %s not found in scene - Skipping' % tgt_layer.attrib['realName'])
+                    layers_skipped += 1
+                    continue
+
+                layer.on = _xml_get_bool(tgt_layer.attrib['on'])
+
+                _log.debug('Layer %s is Visible: %s' % (tgt_layer.attrib['realName'],
+                                                        tgt_layer.attrib['on']))
+
+            _log.info('%d Layers restored' % len(layers_el))
+            if layers_skipped > 0:
+                _log.warning('%d Layers skipped' % layers_skipped)
 
         # ----------
         #   LIGHTS
         # ----------
-        for light in lights_el:
-            _log.debug('Light %s (and %s instances) is On/Enabled: %s/%s' % (light.attrib['realName'],
-                                                                             light.attrib['instanceCount'],
-                                                                             light.attrib['on'],
-                                                                             light.attrib['enabled']))
-            light_obj = _rt.getNodeByName(light.attrib['realName'])
-            if light.attrib['on'] is not None:
-                light_obj.on = _xml_get_bool(light.attrib['on'])
-            if light.attrib['enabled'] is not None:
-                light_obj.enabled = _xml_get_bool(light.attrib['enabled'])
+        # TODO: Check if instance count has changed, and manually set each recorded instance if it has.
+        if self._options['lights'] and lights_el is not None:
+            lights_skipped = 0
 
-        _log.info('%d Unique Lights restored' % len(lights_el))
+            for tgt_light in lights_el:
+                light = _rt.getNodeByName(tgt_light.attrib['realName'])
+
+                # Check if this light is in the current scene
+                if light is None:
+                    _log.warning('Light %s not found in scene - Skipping' % tgt_light.attrib['realName'])
+                    lights_skipped += 1
+                    continue
+
+                # Lights have a few possible controls - VRay Lights have both.
+                # Make sure we only try to apply settings that this light should have.
+                if 'on' in tgt_light.attrib:
+                    light.on = _xml_get_bool(tgt_light.attrib['on'])
+                if 'enabled' in tgt_light.attrib:
+                    light.enabled = _xml_get_bool(tgt_light.attrib['enabled'])
+
+            _log.info('%d Unique Lights restored' % len(lights_el))
+            if lights_skipped > 0:
+                _log.warning('%d Lights skipped' % lights_skipped)
+
         return True
 
     # Resets
