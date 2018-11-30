@@ -54,7 +54,7 @@ except:
 # --------------------
 
 _log = logging.getLogger("Radish")
-_log.setLevel(logging.INFO)
+_log.setLevel(logging.DEBUG)  # Default to DEBUG in case something goes wrong with UI init
 _log.addHandler(_radish_log_handler)
 
 _log.info('Radish Logger active')
@@ -68,6 +68,7 @@ class RadishUI(QtW.QDialog):
     # TODO: Reorganize RadishUI class to only include UI-related code.
     # TODO: Set up new class, RadishLogic, to handle Saving, Loading, Get Settings, etc.  This will be called by the UI.
     # TODO: Set up new class, RadishIO, to handle parsing between disk and memory.  This will be called by the Logic.
+    # TODO: Add functionality to Dev Tools in GUI
 
     def __init__(self, ui_file, runtime, parent=MaxPlus.GetQMaxMainWindow()):
         """
@@ -149,6 +150,10 @@ class RadishUI(QtW.QDialog):
         self._rd_config_le = self.findChild(QtW.QLineEdit, 'rd_config_le')
         self._rd_status_label = self.findChild(QtW.QLabel, 'rd_status_label')
 
+        # Dev
+        self._dev_logger_cb = self.findChild(QtW.QComboBox, 'dev_logger_cb')
+        self._dev_reload_btn = self.findChild(QtW.QPushButton, 'dev_reload_btn')
+
         # ---------------------------------------------------
         #                Function Connections
         # ---------------------------------------------------
@@ -167,6 +172,10 @@ class RadishUI(QtW.QDialog):
         self._rd_resetpass_btn.clicked.connect(self.rd_reset_pass)
         self._rd_resetcam_btn.clicked.connect(self.rd_reset_cam)
         self._rd_resetall_btn.clicked.connect(self.rd_reset_all)
+
+        # Dev
+        self._dev_logger_cb.currentIndexChanged.connect(self._dev_logger_handler)
+        self._dev_reload_btn.clicked.connect(self._dev_reload)
 
         # ---------------------------------------------------
         #                  Parameter Setup
@@ -191,6 +200,9 @@ class RadishUI(QtW.QDialog):
                          'resolution': None,
                          'effects': None,
                          'elements': None}
+
+        # DEV - Set log level
+        _log.setLevel(getattr(logging, self._dev_logger_cb.currentText()))
 
         # Sets config file path and reads xml file.  Generate one if it doesn't exist.
         # This function also sets the _rd_cfg, _rd_cfg_root, and _rd_cfg_path params
@@ -343,6 +355,14 @@ class RadishUI(QtW.QDialog):
             self._rd_cfg_setup()
         except:
             _log.error('Unknown error while reading config file')
+
+    # Dev
+
+    def _dev_logger_handler(self):
+        _log.debug('_dev_logger_handler')
+
+    def _dev_reload(self):
+        _log.debug('_dev_reload')
 
     # Misc internal logic
 
