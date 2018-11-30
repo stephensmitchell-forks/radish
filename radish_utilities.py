@@ -13,9 +13,9 @@ maxScript = MaxPlus.Core.EvalMAXScript
 # --------------------
 #   Logging Classes
 # --------------------
-class CustomHandler(logging.Handler):
+class LogToMaxListener(logging.Handler):
     def __init__(self):
-        super(CustomHandler, self).__init__()
+        super(LogToMaxListener, self).__init__()
         # Apply a formatter to this handler on init
         self.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
 

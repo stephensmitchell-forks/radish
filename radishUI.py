@@ -27,7 +27,6 @@ sys.path.append(os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__fil
 import radish_utilities as util
 
 _rt = pymxs.runtime
-_radish_log_handler = util.CustomHandler()
 
 _get_instances = util.get_instances
 
@@ -53,9 +52,9 @@ except:
 #     Logger setup
 # --------------------
 
-_log = logging.getLogger("Radish")
+_log = logging.getLogger('RadishUI')
 _log.setLevel(logging.DEBUG)  # Default to DEBUG in case something goes wrong with UI init
-_log.addHandler(_radish_log_handler)
+_log.addHandler(util.LogToMaxListener())
 
 _log.info('Radish Logger active')
 
@@ -202,7 +201,7 @@ class RadishUI(QtW.QDialog):
                          'elements': None}
 
         # DEV - Set log level
-        _log.setLevel(getattr(logging, self._dev_logger_cb.currentText()))
+        self._dev_logger_handler()
 
         # Sets config file path and reads xml file.  Generate one if it doesn't exist.
         # This function also sets the _rd_cfg, _rd_cfg_root, and _rd_cfg_path params
@@ -359,10 +358,22 @@ class RadishUI(QtW.QDialog):
     # Dev
 
     def _dev_logger_handler(self):
+        """
+        Handles setting the logger level based on the UI ComboBox.
+        :return: None
+        """
         _log.debug('_dev_logger_handler')
+        _log.setLevel(getattr(logging, self._dev_logger_cb.currentText()))
 
     def _dev_reload(self):
+        """
+        Reloads the custom modules used by RadishUI.
+        :return:
+        """
         _log.debug('_dev_reload')
+        reload(util)
+        _log.info('Reloaded radish_utilities.py')
+        _log.info('Done reloading -- Please close and re-open the GUI for this to take effect')
 
     # Misc internal logic
 
