@@ -3,8 +3,10 @@
 # --------------------
 
 # PySide 2
+# noinspection PyUnresolvedReferences
 from PySide2.QtUiTools import QUiLoader
 import PySide2.QtWidgets as QtW
+# noinspection PyUnresolvedReferences
 from PySide2.QtCore import QFile
 
 # 3ds Max
@@ -63,6 +65,9 @@ _log.info('Radish Logger active')
 # --------------------
 
 class RadishUI(QtW.QDialog):
+    # TODO: Reorganize RadishUI class to only include UI-related code.
+    # TODO: Set up new class, RadishLogic, to handle Saving, Loading, Get Settings, etc.  This will be called by the UI.
+    # TODO: Set up new class, RadishIO, to handle parsing between disk and memory.  This will be called by the Logic.
 
     def __init__(self, ui_file, runtime, parent=MaxPlus.GetQMaxMainWindow()):
         """
