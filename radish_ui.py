@@ -16,17 +16,16 @@ import MaxPlus
 # Misc
 import xml.etree.ElementTree as _ETree
 import datetime
-import logging
 import sys
 import os
-
-# For 3ds Max - Temporarily add this file's directory to PATH
-sys.path.append(os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))))
 
 # Local modules
 import radish_utilities as util
 
-_rt = pymxs.runtime
+# Logging
+import logging
+_log = logging.getLogger('Radish.UI')
+_log.info('Logger %s Active' % _log.name)
 
 _get_instances = util.get_instances
 
@@ -34,29 +33,6 @@ _is_ascii = util.is_ascii
 _xml_tag_cleaner = util.xml_tag_cleaner
 _xml_get_bool = util.xml_get_bool
 _xml_indent = util.xml_indent
-
-
-# Destroys instances of the dialog before recreating it
-# This has to go before re-declaration of the ui variable
-# noinspection PyBroadException
-try:
-    # noinspection PyUnboundLocalVariable
-    _log.info('Closing old instances of UI...')
-    # noinspection PyUnboundLocalVariable
-    ui.close()
-except:
-    pass
-
-
-# --------------------
-#     Logger setup
-# --------------------
-
-_log = logging.getLogger('RadishUI')
-_log.setLevel(logging.DEBUG)  # Default to DEBUG in case something goes wrong with UI init
-_log.addHandler(util.LogToMaxListener())
-
-_log.info('Radish Logger active')
 
 
 # --------------------
@@ -67,7 +43,7 @@ class RadishUI(QtW.QDialog):
     # TODO: Reorganize RadishUI class to only include UI-related code.
     # TODO: Set up new class, RadishLogic, to handle Saving, Loading, Get Settings, etc.  This will be called by the UI.
     # TODO: Set up new class, RadishIO, to handle parsing between disk and memory.  This will be called by the Logic.
-    # TODO: Add functionality to Dev Tools in GUI
+    # TODO: Ask Avery why we need to pass this a runtime object
 
     def __init__(self, ui_file, runtime, parent=MaxPlus.GetQMaxMainWindow()):
         """
@@ -151,7 +127,6 @@ class RadishUI(QtW.QDialog):
 
         # Dev
         self._dev_logger_cb = self.findChild(QtW.QComboBox, 'dev_logger_cb')
-        self._dev_reload_btn = self.findChild(QtW.QPushButton, 'dev_reload_btn')
 
         # ---------------------------------------------------
         #                Function Connections
@@ -174,7 +149,6 @@ class RadishUI(QtW.QDialog):
 
         # Dev
         self._dev_logger_cb.currentIndexChanged.connect(self._dev_logger_handler)
-        self._dev_reload_btn.clicked.connect(self._dev_reload)
 
         # ---------------------------------------------------
         #                  Parameter Setup
@@ -232,8 +206,8 @@ class RadishUI(QtW.QDialog):
 
             tmp_cams = []
 
-            for c in _rt.cameras:
-                if len(_rt.getPropNames(c)) == 0:
+            for c in self._rt.cameras:
+                if len(self._rt.getPropNames(c)) == 0:
                     continue
                 else:
                     tmp_cams.append(str(c.name))
@@ -365,16 +339,6 @@ class RadishUI(QtW.QDialog):
         _log.debug('_dev_logger_handler')
         _log.setLevel(getattr(logging, self._dev_logger_cb.currentText()))
 
-    def _dev_reload(self):
-        """
-        Reloads the custom modules used by RadishUI.
-        :return:
-        """
-        _log.debug('_dev_reload')
-        reload(util)
-        _log.info('Reloaded radish_utilities.py')
-        _log.info('Done reloading -- Please close and re-open the GUI for this to take effect')
-
     # Misc internal logic
 
     def _rd_get_settings(self):
@@ -488,8 +452,8 @@ class RadishUI(QtW.QDialog):
             layers_el = _ETree.SubElement(pass_el, 'LAYERS')  # Create LAYERS element
             layers_skipped = 0
 
-            for i in range(_rt.layerManager.count):
-                layer = _rt.layerManager.getLayer(i)
+            for i in range(self._rt.layerManager.count):
+                layer = self._rt.layerManager.getLayer(i)
 
                 # Validate name, skip and print error if it's not
                 if _is_ascii(layer.name) is False:
@@ -517,7 +481,7 @@ class RadishUI(QtW.QDialog):
             lights_skipped = 0
 
             # Iterate over all lights
-            for light in _rt.lights:
+            for light in self._rt.lights:
                 # Skip if it's in the ignore list
                 if light.name in lights_ignored:
                     continue
@@ -541,9 +505,9 @@ class RadishUI(QtW.QDialog):
                 light_el = _ETree.SubElement(lights_el, _xml_tag_cleaner(light.name), {'realName': light.name,
                                                                                        'instanceCount': str(len(light_instances) - 1)})
                 # Check if this light has an "on" or "enabled" property - save their state to the XML object if they do
-                if _rt.isProperty(light, 'on'):
+                if self._rt.isProperty(light, 'on'):
                     light_el.set('on', str(light.on))
-                if _rt.isProperty(light, 'enabled'):
+                if self._rt.isProperty(light, 'enabled'):
                     light_el.set('enabled', str(light.enabled))
 
                 # Create sub-elements for instances of this light
@@ -568,9 +532,9 @@ class RadishUI(QtW.QDialog):
         # --------------
         # Just grab the render resolution from Max's global variables
         if self._options['resolution']:
-            _log.debug('Render Resolution: %dx%d' % (_rt.renderWidth, _rt.renderHeight))
-            _ETree.SubElement(pass_el, 'RESOLUTION', {'width': str(_rt.renderWidth),
-                                                      'height': str(_rt.renderHeight)})
+            _log.debug('Render Resolution: %dx%d' % (self._rt.renderWidth, self._rt.renderHeight))
+            _ETree.SubElement(pass_el, 'RESOLUTION', {'width': str(self._rt.renderWidth),
+                                                      'height': str(self._rt.renderHeight)})
 
         # -----------
         #   EFFECTS
@@ -581,8 +545,8 @@ class RadishUI(QtW.QDialog):
             effects_skipped = 0
 
             # Note that index starts at 1, not 0!  Thanks, Autodesk!
-            for i in range(1, (_rt.numAtmospherics + 1)):
-                effect = _rt.getAtmospheric(i)
+            for i in range(1, (self._rt.numAtmospherics + 1)):
+                effect = self._rt.getAtmospheric(i)
 
                 # Validate name, skip and print error if it's not
                 if not _is_ascii(effect.name):
@@ -591,8 +555,8 @@ class RadishUI(QtW.QDialog):
                     continue
 
                 _ETree.SubElement(effects_el, _xml_tag_cleaner(effect.name), {'realName': effect.name,
-                                                                              'isActive': str(_rt.isActive(effect))})
-                _log.debug('Effect %s is %s' % (effect.name, _rt.isActive(effect)))
+                                                                              'isActive': str(self._rt.isActive(effect))})
+                _log.debug('Effect %s is %s' % (effect.name, self._rt.isActive(effect)))
 
             if effects_skipped > 0:
                 _log.warning('Skipped %d effects' % effects_skipped)
@@ -607,7 +571,7 @@ class RadishUI(QtW.QDialog):
             elements_el = _ETree.SubElement(pass_el, 'ELEMENTS')
             elements_list = []
             elements_skipped = 0
-            reMgr = _rt.maxOps.getCurRenderElementMgr()
+            reMgr = self._rt.maxOps.getCurRenderElementMgr()
 
             # Note that index starts at 0 this time.  Thanks, Autodesk!
             for i in range(reMgr.NumRenderElements()):
@@ -678,7 +642,7 @@ class RadishUI(QtW.QDialog):
             layers_skipped = 0
 
             for tgt_layer in layers_el:
-                layer = _rt.layerManager.getLayerFromName(tgt_layer.attrib['realName'])
+                layer = self._rt.layerManager.getLayerFromName(tgt_layer.attrib['realName'])
 
                 # Check if this layer is in the current scene
                 if layer is None:
@@ -703,7 +667,7 @@ class RadishUI(QtW.QDialog):
             lights_skipped = 0
 
             for tgt_light in lights_el:
-                light = _rt.getNodeByName(tgt_light.attrib['realName'])
+                light = self._rt.getNodeByName(tgt_light.attrib['realName'])
 
                 # Check if this light is in the current scene
                 if light is None:
@@ -834,30 +798,7 @@ class RadishUI(QtW.QDialog):
         except:
             _log.warning('Could not unregister _active_camera_callback')
 
-        # noinspection PyBroadException
-        try:
-            _log.info('Shutting down Radish logger...')
-            # Shut down handlers
-            logging.shutdown()
-            # Remove handlers
-            for handler in list(_log.handlers):
-                _log.removeHandler(handler)
-        except:
-            _log.warning('Could not shutdown Radish logger')
-
         event.accept()
 
 
-# --------------------
-#    Dialog Setup
-# --------------------
-
-# Path to UI file
-uif = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + "\\radish_standalone.ui"
-
-app = MaxPlus.GetQMaxMainWindow()
-ui = RadishUI(uif, _rt, app)
-
-# Punch it
-ui.show()
-_log.info('GUI created')
+_log.debug('module loaded')

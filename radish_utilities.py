@@ -1,29 +1,12 @@
 # Import PyMXS, MaxPlus, and set up shorthand vars
 import pymxs
 import MaxPlus
-import logging
 
 # PyMXS variable setup
 rt = pymxs.runtime
 
 # MaxPlus variable setup
 maxScript = MaxPlus.Core.EvalMAXScript
-
-
-# --------------------
-#   Logging Classes
-# --------------------
-class LogToMaxListener(logging.Handler):
-    def __init__(self):
-        super(LogToMaxListener, self).__init__()
-        # Apply a formatter to this handler on init
-        self.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
-
-    def emit(self, record):
-        output = self.format(record)
-        # Always strip out quotations to be safe.  @ will force it to print literally.
-        output = 'print @"' + output.replace('"', "'") + '"'
-        maxScript(output)
 
 
 # --------------------
