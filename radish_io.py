@@ -86,19 +86,23 @@ class RadishIO(object):
 
         # If we made it here, then we've successfully loaded our XML config.  Time to parse it into RadishIO's memory.
         # Get all camera elements, then iterate over them to get their passes
+        _log.info('Config loaded - Parsing...')
         for tgt_cam in cfg_root.findall("./*[@type='CAM']"):
             cam_name = tgt_cam.attrib['realName']
+            _log.debug('Parsing Camera %s' % cam_name)
 
             # Get all passes under this camera, then iterate over them to populate pass info
             for tgt_pass in tgt_cam.findall("./*[@type='PASS']"):
                 pass_name = tgt_pass.attrib['realName']
                 rad_pass = self.set_pass(cam_name, pass_name)
+                _log.debug('Parsing Pass %s for Cam %s' % (pass_name, cam_name))
 
                 # Get Layers
+                _log.debug('Parsing Layers...')
                 for tgt_layer in tgt_pass.findall('./LAYERS/*'):
                     # Get attributes of this Layer
                     tgt_name = None
-                    tgt_on = True
+                    tgt_on = None
                     tgt_misc = {}
                     for k, v in tgt_layer.attrib.items():
                         if k == 'realName':
@@ -109,38 +113,81 @@ class RadishIO(object):
                             tgt_misc[k] = v
 
                     # Make a new RadishLayer
-                    rad_pass.layers[tgt_name] = RadishLayer(tgt_name, tgt_on, tgt_misc)
+                    rad_pass.layers[tgt_name] = RadishLayer(name=tgt_name,
+                                                            on=tgt_on,
+                                                            misc=tgt_misc)
 
                 # Get Lights
+                _log.debug('Parsing Lights...')
                 for tgt_light in tgt_pass.findall('./LIGHTS/*'):
                     # Get the attributes of this Light
                     tgt_name = None
-                    tgt_on = True
-                    tgt_enabled = False
+                    tgt_on = None
+                    tgt_enabled = None
                     tgt_instances = []
                     tgt_misc = {}
                     for k, v in tgt_light.attrib.items():
                         if k == 'realName':
                             tgt_name = v
                         elif k == 'on':
-                            tgt_on = v
+                            tgt_on = xml_bool(v)
                         elif k == 'enabled':
-                            tgt_enabled = v
+                            tgt_enabled = xml_bool(v)
                         else:
                             tgt_misc[k] = v
                     for child in tgt_light.findall("./*"):
                         tgt_instances.append([child.attrib['realName']])
 
                     # Make a new RadishLight
-                    rad_pass.lights[tgt_name] = RadishLight(tgt_name,tgt_enabled,tgt_on,tgt_instances,tgt_misc)
+                    rad_pass.lights[tgt_name] = RadishLight(name=tgt_name,
+                                                            enabled=tgt_enabled,
+                                                            on=tgt_on,
+                                                            instances=tgt_instances,
+                                                            misc=tgt_misc)
 
                 # Get Effects
+                _log.debug('Parsing Effects...')
+                for tgt_effect in tgt_pass.findall('./EFFECTS/*'):
+                    # Get the attributes of this Effect
+                    tgt_name = None
+                    tgt_active = None
+                    tgt_misc = {}
+                    for k, v in tgt_effect.attrib.items():
+                        if k == 'realName':
+                            tgt_name = v
+                        elif k == 'isActive':
+                            tgt_active = xml_bool(v)
+                        else:
+                            tgt_misc[k] = v
+
+                    # Make a new RadishEffect
+                    rad_pass.effects[tgt_name] = RadishEffect(name=tgt_name,
+                                                              active=tgt_active,
+                                                              misc=tgt_misc)
 
                 # Get Elements
+                _log.debug('Parsing Elements...')
+                for tgt_element in tgt_pass.findall('./ELEMENTS/*'):
+                    # Get the attributes for this Element
+                    tgt_name = None
+                    tgt_enabled = None
+                    tgt_misc = {}
+                    for k, v in tgt_element.attrib.items():
+                        if k == 'realName':
+                            tgt_name = v
+                        elif k == 'enabled':
+                            tgt_enabled = v
+                        else:
+                            tgt_misc[k] = v
+
+                    # Make a new RadishElement
+                    rad_pass.elements[tgt_name] = RadishElement(name=tgt_name,
+                                                                enabled=tgt_enabled,
+                                                                misc=tgt_misc)
 
 
         # DEBUG - Dump resulting RadishIO memory to log
-        _log.info(repr(self))
+        # _log.info(repr(self))
 
     def set_cam(self, cam_name):
         if cam_name not in self.cams:
@@ -242,17 +289,16 @@ class RadishPass(object):
 
         return output
 
+
 class RadishLayer(object):
     """
     RadishIO Layer data.  If provided, misc should be a dictionary of additional properties.
     """
-    def __init__(self, name, on=False, misc={}):
+    def __init__(self, name, on=None, misc=None):
         self.type = 'LAYER'
         self.name = name
         self.on = on
-
-        if len(misc) > 0:
-            self.misc = misc
+        self.misc = misc
 
         _log.debug('RadishLayer %s Initialized' % self.name)
 
@@ -268,15 +314,13 @@ class RadishLight(object):
     """
     RadishIO Light data.  If provided, misc should be a dictionary of additional properties.
     """
-    def __init__(self, name, enabled=None, on=None, instances=[], misc={}):
+    def __init__(self, name, enabled=None, on=None, instances=None, misc=None):
         self.type = 'LIGHT'
         self.name = name
         self.enabled = enabled
         self.on = on
         self.instances = []
-
-        if len(misc) > 0:
-            self.misc = misc
+        self.misc = misc
 
         _log.debug('RadishLight %s Initialized' % self.name)
 
@@ -294,13 +338,11 @@ class RadishEffect(object):
     """
     RadishIO Effect data.  If provided, misc should be a dictionary of additional properties.
     """
-    def __init__(self, name, active=None, misc={}):
+    def __init__(self, name, active=None, misc=None):
         self.type = 'EFFECT'
         self.name = name
         self.active = active
-
-        if len(misc) > 0:
-            self.misc = misc
+        self.misc = misc
 
         _log.debug('RadishEffect %s Initialized' % self.name)
 
@@ -316,13 +358,11 @@ class RadishElement(object):
     """
     RadishIO Render Element data.  If provided, misc should be a dictionary of additional properties.
     """
-    def __init__(self, name, enabled=None, misc={}):
+    def __init__(self, name, enabled=None, misc=None):
         self.type = 'ELEMENT'
         self.name = name
         self.enabled = enabled
-
-        if len(misc) > 0:
-            self.misc = misc
+        self.misc = misc
 
         _log.debug('RadishElement %s Initialized' % self.name)
 
