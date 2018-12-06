@@ -1,5 +1,5 @@
 # Destroys instances of the dialog before recreating it
-# This has to go first, before modules are reloaded or the ui var is redeclared.
+# This has to go first, before modules are reloaded or the ui var is re-declared.
 try:
     rd_ui.close()
     _log.info('Closing old instances of UI...')
@@ -48,9 +48,8 @@ _rt = pymxs.runtime
 
 # Path to UI file
 _uif = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + "\\radish_standalone.ui"
-
 _app = MaxPlus.GetQMaxMainWindow()
-rd_ui = radish_ui.RadishUI(_uif, _rt, _app)
+rd_ui = radish_ui.RadishUI(_uif, _rt, _log, _app)
 
 # Punch it
 rd_ui.show()

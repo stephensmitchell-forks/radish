@@ -3,10 +3,8 @@
 # --------------------
 
 # PySide 2
-# noinspection PyUnresolvedReferences
 from PySide2.QtUiTools import QUiLoader
 import PySide2.QtWidgets as QtW
-# noinspection PyUnresolvedReferences
 from PySide2.QtCore import QFile
 
 # 3ds Max
@@ -21,6 +19,7 @@ import os
 
 # Local modules
 import radish_utilities as util
+import radish_io as _rio
 
 # Logging
 import logging
@@ -45,7 +44,7 @@ class RadishUI(QtW.QDialog):
     # TODO: Set up new class, RadishIO, to handle parsing between disk and memory.  This will be called by the Logic.
     # TODO: Ask Avery why we need to pass this a runtime object
 
-    def __init__(self, ui_file, runtime, parent=MaxPlus.GetQMaxMainWindow()):
+    def __init__(self, ui_file, runtime, parent_log, parent=MaxPlus.GetQMaxMainWindow()):
         """
         The Initialization of the main UI class
         :param ui_file: The path to the .UI file from QDesigner
@@ -63,8 +62,9 @@ class RadishUI(QtW.QDialog):
         # ---------------------------------------------------
 
         self._ui_file_string = ui_file
-        self._parent = parent
         self._rt = runtime
+        self._parent_log = parent_log
+        self._parent = parent
 
         # ---------------------------------------------------
         #                     Main Init
@@ -133,7 +133,7 @@ class RadishUI(QtW.QDialog):
         # ---------------------------------------------------
 
         # Cams
-        self._rd_cam_chk.stateChanged.connect(self._rd_cam_override)
+        self._rd_cam_chk.stateChanged.connect(self._rd_cam_override_handler)
 
         # Passes
         self._rd_pass_cb.currentIndexChanged.connect(self._rd_pass_handler)
@@ -177,9 +177,16 @@ class RadishUI(QtW.QDialog):
         # DEV - Set log level
         self._dev_logger_handler()
 
-        # Sets config file path and reads xml file.  Generate one if it doesn't exist.
-        # This function also sets the _rd_cfg, _rd_cfg_root, and _rd_cfg_path params
-        self._rd_cfg_setup()
+        # Finds and parses the config file using the specified handler (defaults to XML)
+        try:
+            self._rd_cfg = _rio.RadishIO()
+        except:
+            _log.exception('Radish UI Failed to initialize!')
+
+        try:
+            self._rd_cfg.read_config_xml()
+        except:
+            _log.exception('Radish Config Failed to be read!')
 
         # ---------------------------------------------------
         #               End of RadishUI Init
@@ -193,13 +200,13 @@ class RadishUI(QtW.QDialog):
 
     # Cams
 
-    def _rd_cam_override(self):
+    def _rd_cam_override_handler(self):
         """
-        Check the state of the override checkbox, and toggle the override combobox accordingly.
-        Also re-build the list of cameras when it's activated.
+        Used by the UI to check the state of the override checkbox, and toggle the override combobox accordingly.
+        Also re-builds the list of cameras when it's activated.
         :return:
         """
-        _log.debug('_rd_cam_override')
+        _log.debug('_rd_cam_override_handler')
         if self._rd_cam_chk.isChecked():
             self._rd_cam_le.setEnabled(False)
             self._rd_cam_cb.setEnabled(True)
@@ -250,6 +257,7 @@ class RadishUI(QtW.QDialog):
             self._rd_pass_le.setEnabled(False)
 
     def _rd_get_custom_passes(self):
+        # TODO: Export most of this to RadishLogic
         """
         Populates the pass combobox with default values and any custom passes found in the config.
         :return: None
@@ -280,6 +288,7 @@ class RadishUI(QtW.QDialog):
     # Info
 
     def _rd_cfg_setup(self):
+        # TODO: Export this to RadishIO
         """
         Handles finding and setting up the Radish config file, and assigning the
         _rd_cfg, _rd_cfg_root, _rd_cfg_path params.  Also populates the pass list with custom passes.
@@ -337,7 +346,7 @@ class RadishUI(QtW.QDialog):
         :return: None
         """
         _log.debug('_dev_logger_handler')
-        _log.setLevel(getattr(logging, self._dev_logger_cb.currentText()))
+        self._parent_log.setLevel(getattr(logging, self._dev_logger_cb.currentText()))
 
     # Misc internal logic
 
@@ -386,6 +395,7 @@ class RadishUI(QtW.QDialog):
         return settings_valid
 
     def _rd_save_to_disk(self):
+        # TODO: Export most of this to RadishIO
         """
         Handles writing the config file to disk.
         :return: Bool indicating success or failure.
@@ -413,6 +423,18 @@ class RadishUI(QtW.QDialog):
 
     # Save / Load
     def rd_save(self):
+        _log.debug('rd_save')
+
+        # Run _rd_get_settings(), and cancel saving if it returns an error
+        if self._rd_get_settings() is False:
+            _log.error('Unable to record scene state - Failed to get settings from UI')
+            return False
+
+        _rl_save(self.options, self._tgt_cam, self._tgt_pass)
+
+
+    def rd_save_old(self):
+        # TODO: Export this to RadishLogic and RadishIO
         """
         Save the current scene state to the config file.  If there's already an entry for this camera pass,
         clear it first.  If there isn't, create one.
@@ -603,6 +625,7 @@ class RadishUI(QtW.QDialog):
         return self._rd_save_to_disk()
 
     def rd_load(self):
+        # TODO: Export this to RadishLogic and RadishIO
         """
         Load the config for the current camera pass and apply it to the scene.
         :return: Bool indicating success or failure.
@@ -690,6 +713,7 @@ class RadishUI(QtW.QDialog):
 
     # Resets
     def rd_reset_pass(self, cam_el=None, pass_el=None, save=True):
+        # TODO: Export this to RadishIO
         """
         Clears config data for the current camera pass.  If not passed kwargs, it will get the target pass from
         GUI settings.
@@ -730,6 +754,7 @@ class RadishUI(QtW.QDialog):
             return True
 
     def rd_reset_cam(self, cam_el=None, save=True):
+        # TODO: Export this to RadishIO
         """
         Clears config data for the current camera.  If not passed kwargs, it will get the camera from GUI settings.
         :param cam_el: An ETree element object for the target Camera.
@@ -762,6 +787,7 @@ class RadishUI(QtW.QDialog):
             return True
 
     def rd_reset_all(self, save=True):
+        # TODO: Export this to RadishIO
         """
         Entirely clears the loaded config file, except for the root node.
         :param save: Whether or not to re-save the config after running.  Defaults to True.
