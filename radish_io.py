@@ -95,7 +95,7 @@ class RadishIO(object):
                 rad_pass = self.set_pass(cam_name, pass_name)
 
                 # Get Layers
-                for tgt_layer in tgt_pass.findall(''./LAYERS/*''):
+                for tgt_layer in tgt_pass.findall('./LAYERS/*'):
                     # Get attributes of this Layer
                     tgt_name = None
                     tgt_on = True
