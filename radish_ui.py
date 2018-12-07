@@ -285,59 +285,6 @@ class RadishUI(QtW.QDialog):
         if pass_index >= 0:
             self._rd_pass_cb.setCurrentIndex(pass_index)
 
-    # Info
-
-    def _rd_cfg_setup(self):
-        # TODO: Export this to RadishIO
-        """
-        Handles finding and setting up the Radish config file, and assigning the
-        _rd_cfg, _rd_cfg_root, _rd_cfg_path params.  Also populates the pass list with custom passes.
-        :return: None
-        """
-        _log.debug('_rd_cfg_setup')
-
-        self._rd_cfg_path = os.path.dirname(__file__) + '\\radishConfig.xml'
-        # noinspection PyBroadException
-        try:
-            _log.info('Trying to read config file %s...' % self._rd_cfg_path)
-            self._rd_cfg = _ETree.parse(self._rd_cfg_path)
-            self._rd_cfg_root = self._rd_cfg.getroot()
-            # Display config file path in GUI
-            self._rd_config_le.setText(self._rd_cfg_path)
-            self._rd_status_label.setText('Config file found')
-            # Get any custom passes from the config
-            self._rd_get_custom_passes()
-
-        except IOError:
-            _log.info('Config not found.  Generating one instead')
-            self._rd_cfg = _ETree.ElementTree(_ETree.Element('ROOT'))
-            self._rd_cfg_root = self._rd_cfg.getroot()
-            _xml_indent(self._rd_cfg_root)
-            self._rd_cfg.write(self._rd_cfg_path)
-            _log.info('New config saved')
-            # Indicate new config file in GUI
-            self._rd_config_le.setText(self._rd_cfg_path)
-            self._rd_status_label.setText('No config found - Created new file at above address')
-            # Set up pass combobox
-            self._rd_get_custom_passes()
-
-        except _ETree.ParseError:
-            now = datetime.datetime.now()
-            timestamp = now.strftime("%y%m%d-%H%M")
-            backup_filepath = "%s.%s.BAK" % (self._rd_cfg_path, timestamp)
-            _log.error("Config file is corrupt, and can't be read!")
-            try:
-                # Try to append config with timestamp - if we can't, that's because we backed up within the last minute
-                # and it should be safe to just delete current corrupt config.
-                os.rename(self._rd_cfg_path, backup_filepath)
-                _log.info("Config backed up to %s" % backup_filepath)
-            except OSError:
-                os.remove(self._rd_cfg_path)
-                _log.warning("Unable to back up config - There is already one with this timestamp!")
-            self._rd_cfg_setup()
-        except:
-            _log.error('Unknown error while reading config file')
-
     # Dev
 
     def _dev_logger_handler(self):
@@ -394,29 +341,6 @@ class RadishUI(QtW.QDialog):
 
         return settings_valid
 
-    def _rd_save_to_disk(self):
-        # TODO: Export most of this to RadishIO
-        """
-        Handles writing the config file to disk.
-        :return: Bool indicating success or failure.
-        """
-        # XML Cleanup
-        _xml_indent(self._rd_cfg_root)
-
-        # Save to disk
-        # noinspection PyBroadException
-        try:
-            self._rd_cfg.write(self._rd_cfg_path)
-        except IOError:
-            _log.error('Unable to save config to disk')
-            self._rd_status_label.setText('Unable to save config to disk')
-            return False
-        except:
-            _log.error('Unknown error while writing config file')
-            return False
-
-        return True
-
     # ---------------------------------------------------
     #                  Public Methods
     # ---------------------------------------------------
@@ -425,12 +349,14 @@ class RadishUI(QtW.QDialog):
     def rd_save(self):
         _log.debug('rd_save')
 
-        # Run _rd_get_settings(), and cancel saving if it returns an error
-        if self._rd_get_settings() is False:
-            _log.error('Unable to record scene state - Failed to get settings from UI')
-            return False
+        self._rd_cfg.write_config_xml()
 
-        _rl_save(self.options, self._tgt_cam, self._tgt_pass)
+        # Run _rd_get_settings(), and cancel saving if it returns an error
+        # if self._rd_get_settings() is False:
+        #     _log.error('Unable to record scene state - Failed to get settings from UI')
+        #     return False
+        #
+        # _rl_save(self.options, self._tgt_cam, self._tgt_pass)
 
 
     def rd_save_old(self):
