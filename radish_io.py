@@ -23,11 +23,18 @@ _xml_indent = util.xml_indent
 class RadishIO(object):
     """
     A class to store data on scene states, as well as handle reading and writing those states to disk.
-    Initializes empty, but can be populated with the set_pass() method or manually, using the various Radish... classes
-    in this module.
+    By default it will initialize empty, but if it's passed a string keyword for a supported filetype it will try
+    to load and parse that file.
+    Supported keywords: XML
     """
-    def __init__(self):
+    def __init__(self, config_type=None):
         self.cams = {}
+
+        if config_type is not None:
+            if config_type == 'XML':
+                self.read_config_xml()
+            else:
+                _log.warning('Invalid config type "%s" passed to RadishIO - Supported types are: XML' % config_type)
 
         # End of Init
         # ---------------
@@ -200,7 +207,7 @@ class RadishIO(object):
 
         _log.info('Config file successfully parsed')
         # DEBUG - Dump resulting RadishIO memory to log
-        _log.info(repr(self))
+        # _log.info(repr(self))
 
 
     def write_config_xml(self):
@@ -299,6 +306,10 @@ class RadishIO(object):
 
         _log.info('XML Config saved to %s' % cfg_path)
 
+
+    def save_state(self, cam_name, pass_name, options):
+        # TODO: Re-implement old save code to work with RadishIO's internal memory
+        _log.debug('save_state')
 
     def set_cam(self, cam_name):
         if cam_name not in self.cams:

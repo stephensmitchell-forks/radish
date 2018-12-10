@@ -40,8 +40,7 @@ _xml_indent = util.xml_indent
 
 class RadishUI(QtW.QDialog):
     # TODO: Reorganize RadishUI class to only include UI-related code.
-    # TODO: Set up new class, RadishLogic, to handle Saving, Loading, Get Settings, etc.  This will be called by the UI.
-    # TODO: Set up new class, RadishIO, to handle parsing between disk and memory.  This will be called by the Logic.
+    # TODO: Set up new class, RadishIO, to handle parsing between disk and memory.
     # TODO: Ask Avery why we need to pass this a runtime object
 
     def __init__(self, ui_file, runtime, parent_log, parent=MaxPlus.GetQMaxMainWindow()):
@@ -49,6 +48,7 @@ class RadishUI(QtW.QDialog):
         The Initialization of the main UI class
         :param ui_file: The path to the .UI file from QDesigner
         :param runtime: The pymxs runtime
+        :param parent_log: The logger object used by the script which called RadishUI.
         :param parent: The main Max Window
         """
         # Init QtW.QDialog
@@ -177,16 +177,13 @@ class RadishUI(QtW.QDialog):
         # DEV - Set log level
         self._dev_logger_handler()
 
-        # Finds and parses the config file using the specified handler (defaults to XML)
+        # Finds and parses the config file using the specified handler
         try:
-            self._rd_cfg = _rio.RadishIO()
+            self._rd_cfg = _rio.RadishIO('XML')
         except:
-            _log.exception('Radish UI Failed to initialize!')
-
-        try:
-            self._rd_cfg.read_config_xml()
-        except:
-            _log.exception('Radish Config Failed to be read!')
+            _log.exception('Radish failed to initialize!')
+        finally:
+            self.close()
 
         # ---------------------------------------------------
         #               End of RadishUI Init
@@ -256,13 +253,13 @@ class RadishUI(QtW.QDialog):
         else:
             self._rd_pass_le.setEnabled(False)
 
-    def _rd_get_custom_passes(self):
-        # TODO: Export most of this to RadishLogic
+    def _rd_set_passes(self):
+        # TODO: Export getting custom passes to RadishIO
         """
         Populates the pass combobox with default values and any custom passes found in the config.
         :return: None
         """
-        _log.debug('_rd_get_custom_passes')
+        _log.debug('_rd_set_passes')
         output = []
         passes = self._rd_cfg_root.findall("./*/*[@type='PASS']")
 
@@ -300,7 +297,7 @@ class RadishUI(QtW.QDialog):
     def _rd_get_settings(self):
         """
         Get all settings from dialog window and update class properties.
-        :return: None
+        :return: Bool indicating success or failure.
         """
         _log.debug('_rd_get_settings')
 
@@ -312,8 +309,8 @@ class RadishUI(QtW.QDialog):
         else:
             self._tgt_cam = self._rd_cam_le.text()
         if _is_ascii(self._tgt_cam) is False:
-            _log.error('Camera name must be a valid ASCII string!  Clean your shit up!')
-            self._rd_status_label.setText('Camera name must be a valid ASCII string!  Clean your shit up!')
+            _log.error('Camera name must be a valid ASCII string!')
+            self._rd_status_label.setText('Camera name must be a valid ASCII string!')
             settings_valid = False
         if self._tgt_cam == '':
             self._tgt_cam = 'BLANK'
@@ -324,8 +321,8 @@ class RadishUI(QtW.QDialog):
         else:
             self._tgt_pass = self._rd_pass_cb.currentText()
         if _is_ascii(self._tgt_pass) is False:
-            _log.error('Pass name must be a valid ASCII string!  Cut it out!')
-            self._rd_status_label.setText('Pass name must be a valid ASCII string!  Cut it out!')
+            _log.error('Pass name must be a valid ASCII string!')
+            self._rd_status_label.setText('Pass name must be a valid ASCII string!')
             settings_valid = False
         if self._tgt_pass == '':
             self._tgt_pass = 'BLANK'
@@ -349,18 +346,19 @@ class RadishUI(QtW.QDialog):
     def rd_save(self):
         _log.debug('rd_save')
 
-        self._rd_cfg.write_config_xml()
-
         # Run _rd_get_settings(), and cancel saving if it returns an error
-        # if self._rd_get_settings() is False:
-        #     _log.error('Unable to record scene state - Failed to get settings from UI')
-        #     return False
-        #
-        # _rl_save(self.options, self._tgt_cam, self._tgt_pass)
+        if self._rd_get_settings() is False:
+            _log.error('Unable to record scene state - Failed to get settings from UI')
+            return False
+
+        try:
+            self._rd_cfg.save_state(self._tgt_cam, self._tgt_pass, self._options)
+        except:
+            _log.exception('Unable to record scene state!')
 
 
     def rd_save_old(self):
-        # TODO: Export this to RadishLogic and RadishIO
+        # TODO: Export this to RadishIO
         """
         Save the current scene state to the config file.  If there's already an entry for this camera pass,
         clear it first.  If there isn't, create one.
@@ -547,11 +545,11 @@ class RadishUI(QtW.QDialog):
         # -----------------------
         # Save the updated config
         # -----------------------
-        self._rd_get_custom_passes()
+        self._rd_set_passes()
         return self._rd_save_to_disk()
 
     def rd_load(self):
-        # TODO: Export this to RadishLogic and RadishIO
+        # TODO: Export this to RadishIO
         """
         Load the config for the current camera pass and apply it to the scene.
         :return: Bool indicating success or failure.
@@ -674,7 +672,7 @@ class RadishUI(QtW.QDialog):
         cam_el.remove(pass_el)
 
         if save is True:
-            self._rd_get_custom_passes()
+            self._rd_set_passes()
             return self._rd_save_to_disk()
         else:
             return True
@@ -707,7 +705,7 @@ class RadishUI(QtW.QDialog):
         self._rd_cfg_root.remove(cam_el)
 
         if save is True:
-            self._rd_get_custom_passes()
+            self._rd_set_passes()
             return self._rd_save_to_disk()
         else:
             return True
@@ -728,7 +726,7 @@ class RadishUI(QtW.QDialog):
             self._rd_cfg_root.remove(child)
 
         if save is True:
-            self._rd_get_custom_passes()
+            self._rd_set_passes()
             return self._rd_save_to_disk()
         else:
             return True
