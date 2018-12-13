@@ -105,9 +105,9 @@ class RadishUI(QtW.QDialog):
         # Options
         self._rd_opt_lights_chk = self.findChild(QtW.QCheckBox, 'rd_opt_lights_chk')
         self._rd_opt_layers_chk = self.findChild(QtW.QCheckBox, 'rd_opt_layers_chk')
-        self._rd_opt_resolution_chk = self.findChild(QtW.QCheckBox, 'rd_opt_resolution_chk')
-        self._rd_opt_effects_chk = self.findChild(QtW.QCheckBox, 'rd_opt_effects_chk')
-        self._rd_opt_elements_chk = self.findChild(QtW.QCheckBox, 'rd_opt_elements_chk')
+        # self._rd_opt_resolution_chk = self.findChild(QtW.QCheckBox, 'rd_opt_resolution_chk')
+        # self._rd_opt_effects_chk = self.findChild(QtW.QCheckBox, 'rd_opt_effects_chk')
+        # self._rd_opt_elements_chk = self.findChild(QtW.QCheckBox, 'rd_opt_elements_chk')
 
         # Save / Load
         self._rd_save_btn = self.findChild(QtW.QPushButton, 'rd_save_btn')
@@ -323,9 +323,9 @@ class RadishUI(QtW.QDialog):
         # Options
         self._options['lights'] = self._rd_opt_lights_chk.isChecked()
         self._options['layers'] = self._rd_opt_layers_chk.isChecked()
-        self._options['resolution'] = self._rd_opt_resolution_chk.isChecked()
-        self._options['effects'] = self._rd_opt_effects_chk.isChecked()
-        self._options['elements'] = self._rd_opt_elements_chk.isChecked()
+        # self._options['resolution'] = self._rd_opt_resolution_chk.isChecked()
+        # self._options['effects'] = self._rd_opt_effects_chk.isChecked()
+        # self._options['elements'] = self._rd_opt_elements_chk.isChecked()
 
         _log.debug('Cam: %s  ---   Pass: %s  ---  Options: %s' % (self._tgt_cam, self._tgt_pass, self._options))
 
@@ -362,9 +362,6 @@ class RadishUI(QtW.QDialog):
         """
         Load the config for the current camera pass and apply it to the scene.
         """
-        # TODO: Add ability to restore saved resolution
-        # TODO: Add ability to restore state of saved effects
-        # TODO: Add ability to restore state of saved render elements
         _log.debug('rd_load')
 
         # Run _rd_get_settings(), and cancel saving if it returns an error

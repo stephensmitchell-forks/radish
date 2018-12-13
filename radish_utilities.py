@@ -63,18 +63,18 @@ def pad_string(str1, str2, padding, x):
     return output
 
 
-def get_instances(x):
+def get_instances(obj):
     """
     Get instances of an object and return their objects in an array.
     :param x: The input object
     :return: An array of Max objects.  If there are no instances, it will only contain the source object.
     """
     # Check for " and ' in object name, raise exception if there are
-    if '"' in x.name or "'" in x.name:
+    if '"' in obj.name or "'" in obj.name:
         raise ValueError
 
     instances = []
-    rt.InstanceMgr.GetInstances(x, pymxs.mxsreference(instances))
+    rt.InstanceMgr.GetInstances(obj, pymxs.mxsreference(instances))
 
     return instances
 

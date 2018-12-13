@@ -181,46 +181,6 @@ class RadishIO(object):
                                                                 on=tgt_on,
                                                                 instances=tgt_instances,
                                                                 misc=tgt_misc)
-
-                    # Get Effects
-                    _log.debug('Parsing Effects...')
-                    for tgt_effect in tgt_pass.findall('./EFFECTS/*'):
-                        # Get the attributes of this Effect
-                        tgt_name = None
-                        tgt_active = None
-                        tgt_misc = {}
-                        for k, v in tgt_effect.attrib.items():
-                            if k == 'realName':
-                                tgt_name = v
-                            elif k == 'isActive':
-                                tgt_active = _xml_get_bool(v)
-                            else:
-                                tgt_misc[k] = v
-
-                        # Make a new RadishEffect
-                        rad_pass.effects[tgt_name] = RadishEffect(name=tgt_name,
-                                                                  active=tgt_active,
-                                                                  misc=tgt_misc)
-
-                    # Get Elements
-                    _log.debug('Parsing Elements...')
-                    for tgt_element in tgt_pass.findall('./ELEMENTS/*'):
-                        # Get the attributes for this Element
-                        tgt_name = None
-                        tgt_enabled = None
-                        tgt_misc = {}
-                        for k, v in tgt_element.attrib.items():
-                            if k == 'realName':
-                                tgt_name = v
-                            elif k == 'enabled':
-                                tgt_enabled = v
-                            else:
-                                tgt_misc[k] = v
-
-                        # Make a new RadishElement
-                        rad_pass.elements[tgt_name] = RadishElement(name=tgt_name,
-                                                                    enabled=tgt_enabled,
-                                                                    misc=tgt_misc)
         except:
             _log.exception('Error parsing config %s!')
             # Reset data in case it's corrupt / partially loaded
@@ -280,22 +240,6 @@ class RadishIO(object):
                         # If there are instances of this light, also add them as children
                         for instance in src_light.instances:
                             _ETree.SubElement(cfg_light, _xml_tag_cleaner(instance), {'realName':instance})
-
-                # Effects
-                _log.debug('Effects...')
-                if len(src_pass.effects) > 0:
-                    cfg_effects = _ETree.SubElement(cfg_pass, 'EFFECTS')
-                    for src_effect in src_pass.effects.itervalues():
-                        _ETree.SubElement(cfg_effects, _xml_tag_cleaner(src_effect.name), {'realName':src_effect.name,
-                                                                                           'isActive':str(src_effect.active)})
-
-                # Elements
-                _log.debug('Elements...')
-                if len(src_pass.elements) > 0:
-                    cfg_elements = _ETree.SubElement(cfg_pass, 'ELEMENTS')
-                    for src_element in src_pass.elements.itervalues():
-                        _ETree.SubElement(cfg_elements, _xml_tag_cleaner(src_element.name), {'realName':src_element.name,
-                                                                                             'enabled':str(src_element.enabled)})
 
 
         # XML Cleanup
@@ -449,92 +393,6 @@ class RadishIO(object):
             tgt_pass.lights = lights
             _log.info('Saved Lights...')
 
-        # -----------
-        #   EFFECTS
-        # -----------
-        # Get number of atmospheric effects from a Max global, record their name and state
-        # Also log a warning if we detect multiple elements with the same name, as this will cause issues while loading
-        if options['effects']:
-            effects = {}
-            effects_list = []
-            effects_skipped = 0
-
-            # Note that index starts at 1, not 0!  Thanks, Autodesk!
-            for i in range(1, (self._rt.numAtmospherics + 1)):
-                effect = self._rt.getAtmospheric(i)
-
-                effect_name = effect.name
-                effect_active = self._rt.isActive(effect)
-
-                # Validate name, skip and print error if it's not
-                if not _is_ascii(effect_name):
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(effect_name))
-                    effects_skipped += 1
-                    continue
-
-                # Save this effect
-                effects[effect_name] = RadishEffect(effect_name,
-                                                    effect_active)
-                _log.debug('Recorded Effect %s' % effect_name)
-
-                # Check for duplicate effect names
-                if effect_name in effects_list:
-                    _log.warning('There are multiple Atmospheric Effects named %s!  '
-                                 'They will behave unpredictably when loaded!' % effect_name)
-                else:
-                    effects_list.append(effect_name)
-
-            if effects_skipped > 0:
-                _log.warning('Skipped %d effects' % effects_skipped)
-
-            tgt_pass.effects = effects
-            _log.info('Saved Effects...')
-
-        # ------------
-        #   ELEMENTS
-        # ------------
-        # Get number of render elements from the RenderElementMgr, record their name and state
-        # Also log a warning if we detect multiple elements with the same name, as this will cause issues while loading
-        # Since we aren't changing settings, we don't have to bother closing the Render Settings dialog
-        if options['elements']:
-            elements = {}
-            elements_list = []
-            elements_skipped = 0
-            reMgr = self._rt.maxOps.getCurRenderElementMgr()
-
-            # Note that index starts at 0 this time.  Thanks, Autodesk!
-            for i in range(reMgr.NumRenderElements()):
-                element = reMgr.GetRenderElement(i)
-
-                element_name = element.elementName
-                element_enabled = element.enabled
-
-                # Validate name, skip and print error if it's not
-                if not _is_ascii(element.elementName):
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(element_name))
-                    elements_skipped += 1
-                    continue
-
-                # Save this element
-                elements[element_name] = RadishElement(element_name,
-                                                       element_enabled)
-                _log.debug('Recorded Element %s' % element_name)
-
-                # Check for duplicate element names
-                if element_name in elements_list:
-                    _log.warning('There are multiple Render Elements named %s!  '
-                                 'They will behave unpredictably when loaded!' % element.elementName)
-                else:
-                    elements_list.append(element_name)
-
-            if elements_skipped > 0:
-                _log.warning('Skipped %d elements' % elements_skipped)
-
-            tgt_pass.elements = elements
-            _log.info('Saved Elements...')
-
-        _log.info('Saved Cam: %s  Pass: %s' % (cam_name, pass_name))
-
 
     def load_state(self, cam_name, pass_name, options):
         """
@@ -546,7 +404,7 @@ class RadishIO(object):
         """
         _log.debug('load_state')
 
-        _log.info('Loading Cam:%s  Pass:%s' % (cam_name, pass_name))
+        _log.info('Loading Cam: %s  Pass: %s' % (cam_name, pass_name))
         try:
             tgt_pass = self.get_pass(cam_name, pass_name)
         except ValueError:
@@ -556,6 +414,8 @@ class RadishIO(object):
         # ----------
         #   LAYERS
         # ----------
+        # We have data on every layer that was in the scene when the state was saved, so just try to apply each of them.
+        # If a layer has been removed, it will be skipped.  If a new layer has been created, it will not be affected.
         if options['layers'] and tgt_pass.layers:
             layers_skipped = 0
 
@@ -582,7 +442,9 @@ class RadishIO(object):
         # ----------
         #   LIGHTS
         # ----------
-        # TODO: Check if instance count has changed, and manually set each recorded instance if it has.
+        # We also have data on every light that was in the scene when the state was saved, but we normally try to skip
+        # instances.  If we can't find the 'main' light, try to apply its settings to its former instances.
+        # Similarly, if its instance count has changed then apply its settings to all former instances.
         if options['lights'] and tgt_pass.lights:
             lights_skipped = 0
 
@@ -592,19 +454,43 @@ class RadishIO(object):
                 light_enabled = light.enabled
                 light_instances = light.instances
 
+                is_valid = True
+
                 # Check if this light is in the current scene
                 tgt_light = self._rt.getNodeByName(light_name)
-                if tgt_light is None:
-                    _log.warning('Light %s not found in scene - Skipping' % light_name)
-                    lights_skipped += 1
-                    continue
+                # Check if its instance list is accurate
+                if len(light_instances) > 0 and tgt_light is not None:
+                    tgt_instances = _get_instances(tgt_light)
+                    if (len(tgt_instances) - 1) != len(light_instances):
+                        is_valid = False
 
-                # Lights have a few possible controls - VRay Lights have both.
-                # Make sure we only try to apply settings that this light should have.
-                if light_on is not None:
-                    tgt_light.on = light_on
-                if light_enabled is not None:
-                    tgt_light.enabled = light_enabled
+                if tgt_light is None or is_valid is False:
+                    # Apply settings to all former instances
+                    _log.warning('Light %s either not found or its instance count has changed - Applying settings to all previous instances' % light_name)
+                    for i in light_instances:
+                        try:
+                            _log.debug('Trying to restore %s (instance of %s)' % (i, light_name))
+                            tgt_light = self._rt.getNodeByName(i)
+                            # Lights have a few possible controls - VRay Lights have both.
+                            # Make sure we only try to apply settings that this light should have.
+                            if light_on is not None:
+                                tgt_light.on = light_on
+                            if light_enabled is not None:
+                                tgt_light.enabled = light_enabled
+                        except:
+                            _log.warning('Unable to restore %s (instance of %s)' % (i, light_name))
+
+                # Try to set this light
+                try:
+                    # Lights have a few possible controls - VRay Lights have both.
+                    # Make sure we only try to apply settings that this light should have.
+                    if light_on is not None:
+                        tgt_light.on = light_on
+                    if light_enabled is not None:
+                        tgt_light.enabled = light_enabled
+                except:
+                    _log.warning('Unable to restore Light %s' % light_name)
+                    lights_skipped += 1
 
             _log.info('%d Unique Lights restored' % (len(tgt_pass.lights) - lights_skipped))
             if lights_skipped > 0:
@@ -718,9 +604,6 @@ class RadishPass(object):
         self.name = name
         self.layers = {}
         self.lights = {}
-        self.effects = {}
-        self.elements = {}
-        self.resolution = {'x': None, 'y': None}
 
         _log.debug('RadishPass %s Initialized' % self.name)
 
@@ -736,18 +619,6 @@ class RadishPass(object):
 
         output += '%s .lights {' % indent
         for k, v in self.lights.items():
-            output += '%s|\t%s' % (indent, k)
-            output += repr(v)
-        output += '%s}' % indent
-
-        output += '%s .effects {' % indent
-        for k, v in self.effects.items():
-            output += '%s|\t%s' % (indent, k)
-            output += repr(v)
-        output += '%s}' % indent
-
-        output += '%s .elements {' % indent
-        for k, v in self.elements.items():
             output += '%s|\t%s' % (indent, k)
             output += repr(v)
         output += '%s}' % indent
@@ -796,46 +667,6 @@ class RadishLight(object):
         output += '%s .enabled: %s' % (indent, self.enabled)
         output += '%s .on: %s' % (indent, self.on)
         output += '%s .instances: %s' % (indent, self.instances)
-
-        return output
-
-class RadishEffect(object):
-    """
-    RadishIO Effect data.  If provided, misc should be a dictionary of additional properties.
-    """
-    def __init__(self, name, active=None, misc=None):
-        self.type = 'EFFECT'
-        self.name = name
-        self.active = active
-        self.misc = misc
-
-        _log.debug('RadishEffect %s Initialized' % self.name)
-
-    def __repr__(self):
-        indent = ('\r' + (3 * '|\t'))
-        output = '%s .type: %s' % (indent, self.type)
-        output += '%s .name: %s' % (indent, self.name)
-        output += '%s .active: %s' % (indent, self.active)
-
-        return output
-
-class RadishElement(object):
-    """
-    RadishIO Render Element data.  If provided, misc should be a dictionary of additional properties.
-    """
-    def __init__(self, name, enabled=None, misc=None):
-        self.type = 'ELEMENT'
-        self.name = name
-        self.enabled = enabled
-        self.misc = misc
-
-        _log.debug('RadishElement %s Initialized' % self.name)
-
-    def __repr__(self):
-        indent = ('\r' + (3 * '|\t'))
-        output = '%s .type: %s' % (indent, self.type)
-        output += '%s .name: %s' % (indent, self.name)
-        output += '%s .enabled: %s' % (indent, self.enabled)
 
         return output
 
