@@ -19,6 +19,8 @@ import radish_utilities as util
 _xml_get_bool = util.xml_get_bool
 _xml_tag_cleaner = util.xml_tag_cleaner
 _xml_indent = util.xml_indent
+_get_instances = util.get_instances
+_is_ascii = util.is_ascii
 
 class RadishIO(object):
     """
@@ -27,12 +29,32 @@ class RadishIO(object):
     to load and parse that file.
     Supported keywords: XML
     """
-    def __init__(self, config_type=None):
+    def __init__(self, runtime, config_type=None):
+        """
+        :param runtime: The pymxs runtime.
+        :param config_type: Keyword, determines how to load and save from disk.
+        """
+
+        # ---------------
+        #   Variables
+        # ---------------
+        self._rt = runtime
+
+        # ---------------
+        #   Class Attrs
+        # ---------------
         self.cams = {}
 
+        # ---------------
+        #   Load Config
+        # ---------------
+        # If we got a valid config_type, then set up shorthand methods .read and .write to parse the config.
+        # Also immediately load the config.
         if config_type is not None:
             if config_type == 'XML':
-                self.read_config_xml()
+                self.read = self.read_config_xml
+                self.write = self.write_config_xml
+                self.read()
             else:
                 _log.warning('Invalid config type "%s" passed to RadishIO - Supported types are: XML' % config_type)
 
@@ -234,7 +256,7 @@ class RadishIO(object):
                 # Iterate over this passes' settings, adding them to the XML Tree if they contain data
 
                 # Layers
-                _log.debug('...Layers...')
+                _log.debug('Layers...')
                 if len(src_pass.layers) > 0:
                     cfg_layers = _ETree.SubElement(cfg_pass, 'LAYERS')
                     for src_layer in src_pass.layers.itervalues():
@@ -242,7 +264,7 @@ class RadishIO(object):
                                                                                          'on':str(src_layer.on)})
 
                 # Lights
-                _log.debug('...Lights...')
+                _log.debug('Lights...')
                 if len(src_pass.lights) > 0:
                     cfg_lights = _ETree.SubElement(cfg_pass, 'LIGHTS')
                     for src_light in src_pass.lights.itervalues():
@@ -260,7 +282,7 @@ class RadishIO(object):
                             _ETree.SubElement(cfg_light, _xml_tag_cleaner(instance), {'realName':instance})
 
                 # Effects
-                _log.debug('...Effects...')
+                _log.debug('Effects...')
                 if len(src_pass.effects) > 0:
                     cfg_effects = _ETree.SubElement(cfg_pass, 'EFFECTS')
                     for src_effect in src_pass.effects.itervalues():
@@ -268,7 +290,7 @@ class RadishIO(object):
                                                                                            'isActive':str(src_effect.active)})
 
                 # Elements
-                _log.debug('...Elements...')
+                _log.debug('Elements...')
                 if len(src_pass.elements) > 0:
                     cfg_elements = _ETree.SubElement(cfg_pass, 'ELEMENTS')
                     for src_element in src_pass.elements.itervalues():
@@ -308,8 +330,286 @@ class RadishIO(object):
 
 
     def save_state(self, cam_name, pass_name, options):
-        # TODO: Re-implement old save code to work with RadishIO's internal memory
+        """
+        Save the current scene state to RadishIO memory
+        :param cam_name: String, name of camera
+        :param pass_name: String, name of pass
+        :param options: Dict, options from RadishUI
+        :return: None
+        """
         _log.debug('save_state')
+
+        # Set up indicated pass, or get the pass if it's already in memory.
+        # Note that the pass will not be cleared, so any data that is not overwritten will remain.
+        tgt_pass = self.set_pass(cam_name, pass_name)
+        _log.info('Saving Cam: %s  Pass: %s...' % (cam_name, pass_name))
+
+        # -----------------------
+        # Populate pass with data
+        # -----------------------
+
+        # ----------
+        #   LAYERS
+        # ----------
+        # Recording Layers is straightforward - Just check the name to make sure it's valid, then add it to the pass
+        if options['layers']:
+            layers = {}
+            layers_skipped = 0
+
+            for i in range(self._rt.layerManager.count):
+                layer = self._rt.layerManager.getLayer(i)
+
+                layer_name = layer.name
+                layer_on = layer.on
+
+                # Validate name, skip and print error if it's not
+                if _is_ascii(layer_name) is False:
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(layer_name))
+                    layers_skipped += 1
+                    continue
+
+                layers[layer_name] = RadishLayer(layer_name,
+                                                 layer_on)
+
+                _log.debug('Recorded layer %s' % layer_name)
+
+            if layers_skipped > 0:
+                _log.warning('Skipped %d layers' % layers_skipped)
+
+            tgt_pass.layers = layers
+            _log.info('Saved Layers...')
+
+        # ----------
+        #   LIGHTS
+        # ----------
+        # Recording Lights is a bit more complicated - We have to account for instanced objects and variation in object
+        # properties as well as name validation.
+        # Get all the scene lights, then store each light, its instances, and relevant properties.
+        # Skip if their name is invalid, or if they've already been recorded (as an instance)
+        if options['lights']:
+            lights = {}
+            lights_ignored = []
+            lights_skipped = 0
+
+            # Iterate over all lights
+            for light in self._rt.lights:
+
+                light_name = light.name
+                # Set blank properties, to be set later if found
+                light_on = None
+                light_enabled = None
+                light_instances = []
+
+                # Skip if it's in the ignore list
+                if light_name in lights_ignored:
+                    continue
+
+                # Validate name, skip and print error if it's not
+                if not _is_ascii(light_name):
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(light_name))
+                    lights_skipped += 1
+                    continue
+
+                # Try to get instances, log error and skip if we can't.
+                try:
+                    light_instances_objs = _get_instances(light)
+                    for i in light_instances_objs:
+                        i_name = i.name
+                        if not _is_ascii(i_name):
+                            _log.warning('Skipping instance %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(i_name))
+                            lights_skipped += 1
+                            continue
+                        if i_name == light_name:  # The instance list includes the current light - skip it
+                            continue
+                        # Valid instance, add its name to our instance list and ignore list
+                        light_instances.append(i_name)
+                        lights_ignored.append(i_name)
+                except ValueError:
+                    _log.warning('Skipping %s  -  It contains Quotation or Apostrophe chars!' % light_name)
+                    lights_skipped += 1
+                    continue
+
+                # Check if this light has an "on" or "enabled" property - save their state if they do
+                if self._rt.isProperty(light, 'on'):
+                    light_on = light.on
+                if self._rt.isProperty(light, 'enabled'):
+                    light_enabled = light.enabled
+
+                # Save this light
+                lights[light_name] = RadishLight(light_name,
+                                                 light_enabled,
+                                                 light_on,
+                                                 light_instances)
+
+                _log.debug('Recorded light %s' % light_name)
+
+            if lights_skipped > 0:
+                _log.warning('Skipped %d lights' % lights_skipped)
+
+            tgt_pass.lights = lights
+            _log.info('Saved Lights...')
+
+        # -----------
+        #   EFFECTS
+        # -----------
+        # Get number of atmospheric effects from a Max global, record their name and state
+        # Also log a warning if we detect multiple elements with the same name, as this will cause issues while loading
+        if options['effects']:
+            effects = {}
+            effects_list = []
+            effects_skipped = 0
+
+            # Note that index starts at 1, not 0!  Thanks, Autodesk!
+            for i in range(1, (self._rt.numAtmospherics + 1)):
+                effect = self._rt.getAtmospheric(i)
+
+                effect_name = effect.name
+                effect_active = self._rt.isActive(effect)
+
+                # Validate name, skip and print error if it's not
+                if not _is_ascii(effect_name):
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(effect_name))
+                    effects_skipped += 1
+                    continue
+
+                # Save this effect
+                effects[effect_name] = RadishEffect(effect_name,
+                                                    effect_active)
+                _log.debug('Recorded Effect %s' % effect_name)
+
+                # Check for duplicate effect names
+                if effect_name in effects_list:
+                    _log.warning('There are multiple Atmospheric Effects named %s!  '
+                                 'They will behave unpredictably when loaded!' % effect_name)
+                else:
+                    effects_list.append(effect_name)
+
+            if effects_skipped > 0:
+                _log.warning('Skipped %d effects' % effects_skipped)
+
+            tgt_pass.effects = effects
+            _log.info('Saved Effects...')
+
+        # ------------
+        #   ELEMENTS
+        # ------------
+        # Get number of render elements from the RenderElementMgr, record their name and state
+        # Also log a warning if we detect multiple elements with the same name, as this will cause issues while loading
+        # Since we aren't changing settings, we don't have to bother closing the Render Settings dialog
+        if options['elements']:
+            elements = {}
+            elements_list = []
+            elements_skipped = 0
+            reMgr = self._rt.maxOps.getCurRenderElementMgr()
+
+            # Note that index starts at 0 this time.  Thanks, Autodesk!
+            for i in range(reMgr.NumRenderElements()):
+                element = reMgr.GetRenderElement(i)
+
+                element_name = element.elementName
+                element_enabled = element.enabled
+
+                # Validate name, skip and print error if it's not
+                if not _is_ascii(element.elementName):
+                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(element_name))
+                    elements_skipped += 1
+                    continue
+
+                # Save this element
+                elements[element_name] = RadishElement(element_name,
+                                                       element_enabled)
+                _log.debug('Recorded Element %s' % element_name)
+
+                # Check for duplicate element names
+                if element_name in elements_list:
+                    _log.warning('There are multiple Render Elements named %s!  '
+                                 'They will behave unpredictably when loaded!' % element.elementName)
+                else:
+                    elements_list.append(element_name)
+
+            if elements_skipped > 0:
+                _log.warning('Skipped %d elements' % elements_skipped)
+
+            tgt_pass.elements = elements
+            _log.info('Saved Elements...')
+
+        _log.info('Saved Cam: %s  Pass: %s' % (cam_name, pass_name))
+
+
+    def load_state(self, cam_name, pass_name, options):
+        """
+        Load the requested state from RadishIO's memory.
+        :param cam_name: String, name of camera.
+        :param pass_name: String, name of pass.
+        :param options: Dict, options from RadishUI.
+        :return: None.
+        """
+        _log.debug('load_state')
+
+        _log.info('Loading Cam:%s  Pass:%s' % (cam_name, pass_name))
+        try:
+            tgt_pass = self.get_pass(cam_name, pass_name)
+        except ValueError:
+            _log.exception('Unable to load state!')
+            return
+
+        # ----------
+        #   LAYERS
+        # ----------
+        if options['layers'] and tgt_pass.layers:
+            layers_skipped = 0
+
+            for layer in tgt_pass.layers.itervalues():
+                layer_name = layer.name
+                layer_on = layer.on
+
+                # Check if this layer is in the current scene
+                tgt_layer = self._rt.layerManager.getLayerFromName(layer_name)
+                if tgt_layer is None:
+                    _log.warning('Layer %s not found in scene - Skipping' % layer_name)
+                    layers_skipped += 1
+                    continue
+
+                tgt_layer.on = layer_on
+
+                _log.debug('Layer %s is Visible: %s' % (layer_name,
+                                                        layer_on))
+
+            _log.info('%d Layers restored' % (len(tgt_pass.layers) - layers_skipped))
+            if layers_skipped > 0:
+                _log.warning('%d Layers skipped' % layers_skipped)
+
+        # ----------
+        #   LIGHTS
+        # ----------
+        # TODO: Check if instance count has changed, and manually set each recorded instance if it has.
+        if options['lights'] and tgt_pass.lights:
+            lights_skipped = 0
+
+            for light in tgt_pass.lights.itervalues():
+                light_name = light.name
+                light_on = light.on
+                light_enabled = light.enabled
+                light_instances = light.instances
+
+                # Check if this light is in the current scene
+                tgt_light = self._rt.getNodeByName(light_name)
+                if tgt_light is None:
+                    _log.warning('Light %s not found in scene - Skipping' % light_name)
+                    lights_skipped += 1
+                    continue
+
+                # Lights have a few possible controls - VRay Lights have both.
+                # Make sure we only try to apply settings that this light should have.
+                if light_on is not None:
+                    tgt_light.on = light_on
+                if light_enabled is not None:
+                    tgt_light.enabled = light_enabled
+
+            _log.info('%d Unique Lights restored' % (len(tgt_pass.lights) - lights_skipped))
+            if lights_skipped > 0:
+                _log.warning('%d Lights skipped' % lights_skipped)
+
 
     def set_cam(self, cam_name):
         if cam_name not in self.cams:
@@ -331,15 +631,58 @@ class RadishIO(object):
 
     def get_pass(self, cam_name, pass_name):
         """
-        Shorthand to return the given pass for the given camera, or None if they don't exist.
+        Shorthand to return the given pass for the given camera.  Raises a ValueError if it's not found.
         """
         if cam_name in self.cams:
             if pass_name in self.cams[cam_name].passes:
                 _log.debug('Got Pass %s in Cam %s' % (pass_name, cam_name))
                 return self.cams[cam_name].passes[pass_name]
 
-        _log.warning('Pass %s in Cam %s not found!' % (pass_name, cam_name))
-        return None
+        raise ValueError('Could not find Cam %s  Pass %s' % (cam_name, pass_name))
+
+    def get_all_passes(self):
+        """
+        Gets all passes from RadishIO's memory and return them as a list, with no duplicates.
+        :return: List containing one of every pass in memory.
+        """
+        passes = []
+        for c in self.cams.itervalues():
+            for p in c.passes.itervalues():
+                if p.name in passes:
+                    continue
+                else:
+                    passes.append(p.name)
+                    _log.debug('Found Pass %s' % p.name)
+
+        return passes
+
+    def reset_pass(self, cam_name, pass_name):
+        """
+        Shorthand to delete the specified pass.
+        """
+        # Run get_pass to check if pass exists
+        self.get_pass(cam_name, pass_name)
+
+        del self.cams[cam_name].passes[pass_name]
+        _log.info('Reset Cam: %s  Pass: %s' % (cam_name, pass_name))
+
+    def reset_cam(self, cam_name):
+        """
+        Shorthand to delete the specified cam.
+        """
+        # Check if camera is in memory, raise ValueError if it's not
+        if cam_name in self.cams:
+            del self.cams[cam_name]
+            _log.info('Reset Cam: %s' % cam_name)
+        else:
+            raise ValueError('Could not find Cam %s' % cam_name)
+
+    def reset_all(self):
+        """
+        Shorthand to clear Radish's memory.  Nuclear option.
+        """
+        self.cams = {}
+        _log.info('Reset RadishIO Memory')
 
 
 class RadishCam(object):

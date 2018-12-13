@@ -8,7 +8,6 @@ import PySide2.QtWidgets as QtW
 from PySide2.QtCore import QFile
 
 # 3ds Max
-import pymxs
 import MaxPlus
 
 # Misc
@@ -19,7 +18,7 @@ import os
 
 # Local modules
 import radish_utilities as util
-import radish_io as _rio
+import radish_io as rio
 
 # Logging
 import logging
@@ -40,8 +39,6 @@ _xml_indent = util.xml_indent
 
 class RadishUI(QtW.QDialog):
     # TODO: Reorganize RadishUI class to only include UI-related code.
-    # TODO: Set up new class, RadishIO, to handle parsing between disk and memory.
-    # TODO: Ask Avery why we need to pass this a runtime object
 
     def __init__(self, ui_file, runtime, parent_log, parent=MaxPlus.GetQMaxMainWindow()):
         """
@@ -151,10 +148,10 @@ class RadishUI(QtW.QDialog):
         self._dev_logger_cb.currentIndexChanged.connect(self._dev_logger_handler)
 
         # ---------------------------------------------------
-        #                  Parameter Setup
+        #                  Attribute Setup
         # ---------------------------------------------------
 
-        # Parameters used for navigating the XML config
+        # Attributes used for navigating the XML config
         self._tgt_project = 'TEST'
         self._tgt_cam = None
         self._tgt_pass = None
@@ -178,11 +175,13 @@ class RadishUI(QtW.QDialog):
         self._dev_logger_handler()
 
         # Finds and parses the config file using the specified handler
+        # Also set up pass combobox, pulling custom passes from the loaded config
         try:
-            self._rd_cfg = _rio.RadishIO('XML')
+            self._rd_cfg = rio.RadishIO(runtime=self._rt,
+                                        config_type='XML')
+            self._rd_set_passes(self._rd_cfg)
         except:
             _log.exception('Radish failed to initialize!')
-        finally:
             self.close()
 
         # ---------------------------------------------------
@@ -253,15 +252,15 @@ class RadishUI(QtW.QDialog):
         else:
             self._rd_pass_le.setEnabled(False)
 
-    def _rd_set_passes(self):
-        # TODO: Export getting custom passes to RadishIO
+    def _rd_set_passes(self, cfg):
         """
         Populates the pass combobox with default values and any custom passes found in the config.
+        :param cfg: Initialized RadishIO object
         :return: None
         """
         _log.debug('_rd_set_passes')
-        output = []
-        passes = self._rd_cfg_root.findall("./*/*[@type='PASS']")
+        passes = cfg.get_all_passes()
+        append_list = []
 
         # Reset the CB
         self._rd_pass_cb.clear()
@@ -271,13 +270,12 @@ class RadishUI(QtW.QDialog):
                                    self._passes['custom']])
 
         for name in passes:
-            name = name.attrib['realName']
-            if name not in output and name not in self._passes.values():
-                output.append(name)
+            if name not in self._passes.itervalues():
+                append_list.append(name)
 
-        self._rd_pass_cb.insertItems(2, output)
+        self._rd_pass_cb.insertItems(2, append_list)
 
-        _log.info('last_pass = %s' % self._tgt_pass)
+        _log.debug('last_pass = %s' % self._tgt_pass)
         pass_index = self._rd_pass_cb.findText(self._tgt_pass)
         if pass_index >= 0:
             self._rd_pass_cb.setCurrentIndex(pass_index)
@@ -296,8 +294,7 @@ class RadishUI(QtW.QDialog):
 
     def _rd_get_settings(self):
         """
-        Get all settings from dialog window and update class properties.
-        :return: Bool indicating success or failure.
+        Get all settings from dialog window and update the ._tgt_cam, ._tgt_pass, and ._options class attributes.
         """
         _log.debug('_rd_get_settings')
 
@@ -309,9 +306,7 @@ class RadishUI(QtW.QDialog):
         else:
             self._tgt_cam = self._rd_cam_le.text()
         if _is_ascii(self._tgt_cam) is False:
-            _log.error('Camera name must be a valid ASCII string!')
-            self._rd_status_label.setText('Camera name must be a valid ASCII string!')
-            settings_valid = False
+            raise ValueError('Camera name must be a valid ASCII string, got %s' % self._tgt_cam)
         if self._tgt_cam == '':
             self._tgt_cam = 'BLANK'
 
@@ -321,9 +316,7 @@ class RadishUI(QtW.QDialog):
         else:
             self._tgt_pass = self._rd_pass_cb.currentText()
         if _is_ascii(self._tgt_pass) is False:
-            _log.error('Pass name must be a valid ASCII string!')
-            self._rd_status_label.setText('Pass name must be a valid ASCII string!')
-            settings_valid = False
+            raise ValueError('Pass name must be a valid ASCII string, got %s' % self._tgt_pass)
         if self._tgt_pass == '':
             self._tgt_pass = 'BLANK'
 
@@ -336,7 +329,6 @@ class RadishUI(QtW.QDialog):
 
         _log.debug('Cam: %s  ---   Pass: %s  ---  Options: %s' % (self._tgt_cam, self._tgt_pass, self._options))
 
-        return settings_valid
 
     # ---------------------------------------------------
     #                  Public Methods
@@ -344,392 +336,125 @@ class RadishUI(QtW.QDialog):
 
     # Save / Load
     def rd_save(self):
+        """
+        Save current scene state to RadishIO memory, then write it to disk.
+        """
         _log.debug('rd_save')
 
         # Run _rd_get_settings(), and cancel saving if it returns an error
-        if self._rd_get_settings() is False:
-            _log.error('Unable to record scene state - Failed to get settings from UI')
-            return False
+        try:
+            self._rd_get_settings()
+        except ValueError:
+            _log.exception('Unable to record scene state - Failed to get settings from UI')
+            return
 
+        # Save state to memory, then update pass combobox and write to disk
         try:
             self._rd_cfg.save_state(self._tgt_cam, self._tgt_pass, self._options)
+            self._rd_cfg.write()
         except:
             _log.exception('Unable to record scene state!')
 
+        self._rd_set_passes(self._rd_cfg)
 
-    def rd_save_old(self):
-        # TODO: Export this to RadishIO
-        """
-        Save the current scene state to the config file.  If there's already an entry for this camera pass,
-        clear it first.  If there isn't, create one.
-        :return: Bool indicating success or failure.
-        """
-        _log.debug('rd_save')
-
-        # Run _rd_get_settings(), and cancel saving if it returns an error
-        if self._rd_get_settings() is False:
-            _log.error('Unable to record scene state - _rd_get_settings() failed')
-            return False
-
-        # Try to find the camera and pass in the config - If we can't, add them
-        cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
-        if cam_el is None:
-            _log.info('%s is not in config file - adding it now' % self._tgt_cam)
-            cam_el = _ETree.SubElement(self._rd_cfg_root, _xml_tag_cleaner(self._tgt_cam).upper(), {'realName': self._tgt_cam,
-                                                                                                    'type': 'CAM'})
-            pass_el = None
-        else:
-            pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
-        if pass_el is not None:
-            # If there's already data on this pass, reset it
-            self.rd_reset_pass(cam_el, pass_el, save=False)
-        pass_el = _ETree.SubElement(cam_el, _xml_tag_cleaner(self._tgt_pass).upper(), {'realName': self._tgt_pass,
-                                                                                       'type': 'PASS'})
-
-        # -----------------------
-        # Populate pass with data
-        # -----------------------
-
-        # ----------
-        #   LAYERS
-        # ----------
-        # Recording Layers is straightforward - Just check the name to make sure it's valid, then save it to the config
-        if self._options['layers']:
-            layers_el = _ETree.SubElement(pass_el, 'LAYERS')  # Create LAYERS element
-            layers_skipped = 0
-
-            for i in range(self._rt.layerManager.count):
-                layer = self._rt.layerManager.getLayer(i)
-
-                # Validate name, skip and print error if it's not
-                if _is_ascii(layer.name) is False:
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(layer.name))
-                    layers_skipped += 1
-                    continue
-
-                _ETree.SubElement(layers_el, _xml_tag_cleaner(layer.name), {'realName': layer.name,
-                                                                            'on': str(layer.on)})
-                _log.debug('%s is %s' % (layer.name, layer.on))
-
-            if layers_skipped > 0:
-                _log.warning('Skipped %d layers' % layers_skipped)
-
-        # ----------
-        #   LIGHTS
-        # ----------
-        # Recording Lights is a bit more complicated - We have to account for instanced objects and variation in object
-        # properties as well as name validation.
-        # Get all the scene lights, then store each light, its instances, and relevant properties to save state.
-        # Skip if their name is invalid, or if it's already been recorded (usually as an instance)
-        if self._options['lights']:
-            lights_el = _ETree.SubElement(pass_el, 'LIGHTS')  # Create LIGHTS element
-            lights_ignored = []
-            lights_skipped = 0
-
-            # Iterate over all lights
-            for light in self._rt.lights:
-                # Skip if it's in the ignore list
-                if light.name in lights_ignored:
-                    continue
-
-                # Validate name, skip and print error if it's not
-                if not _is_ascii(light.name):
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(light.name))
-                    lights_skipped += 1
-                    continue
-
-                # Get instances, if there are any
-                _log.debug('Checking light %s' % light.name)
-                light_instances = _get_instances(light)
-                # Check if there was an error, and skip if there was
-                if light_instances is False:
-                    _log.warning('Skipping %s  -  It contains Quotation or Apostrophe chars!' % light.name)
-                    lights_skipped += 1
-                    continue
-
-                # Create entry for this light in XML object
-                light_el = _ETree.SubElement(lights_el, _xml_tag_cleaner(light.name), {'realName': light.name,
-                                                                                       'instanceCount': str(len(light_instances) - 1)})
-                # Check if this light has an "on" or "enabled" property - save their state to the XML object if they do
-                if self._rt.isProperty(light, 'on'):
-                    light_el.set('on', str(light.on))
-                if self._rt.isProperty(light, 'enabled'):
-                    light_el.set('enabled', str(light.enabled))
-
-                # Create sub-elements for instances of this light
-                # Also add instances to lights_ignored, so we don't redundantly save them
-                if len(light_instances) > 1:
-                    _log.debug('Found %d instances of %s' % (len(light_instances), light.name))
-                    for i in light_instances:
-                        if not _is_ascii(i.name):
-                            _log.warning('Skipping instance %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(i.name))
-                            lights_skipped += 1
-                            continue
-                        if i.name == light.name:  # The instance list includes the current light - skip it
-                            continue
-                        _ETree.SubElement(light_el, _xml_tag_cleaner(i.name), {'realName': i.name})
-                        lights_ignored.append(i.name)
-
-            if lights_skipped > 0:
-                _log.warning('Skipped %d lights' % lights_skipped)
-
-        # --------------
-        #   RESOLUTION
-        # --------------
-        # Just grab the render resolution from Max's global variables
-        if self._options['resolution']:
-            _log.debug('Render Resolution: %dx%d' % (self._rt.renderWidth, self._rt.renderHeight))
-            _ETree.SubElement(pass_el, 'RESOLUTION', {'width': str(self._rt.renderWidth),
-                                                      'height': str(self._rt.renderHeight)})
-
-        # -----------
-        #   EFFECTS
-        # -----------
-        # Get number of atmospheric effects from a Max global, record their name and state
-        if self._options['effects']:
-            effects_el = _ETree.SubElement(pass_el, 'EFFECTS')
-            effects_skipped = 0
-
-            # Note that index starts at 1, not 0!  Thanks, Autodesk!
-            for i in range(1, (self._rt.numAtmospherics + 1)):
-                effect = self._rt.getAtmospheric(i)
-
-                # Validate name, skip and print error if it's not
-                if not _is_ascii(effect.name):
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(effect.name))
-                    effects_skipped += 1
-                    continue
-
-                _ETree.SubElement(effects_el, _xml_tag_cleaner(effect.name), {'realName': effect.name,
-                                                                              'isActive': str(self._rt.isActive(effect))})
-                _log.debug('Effect %s is %s' % (effect.name, self._rt.isActive(effect)))
-
-            if effects_skipped > 0:
-                _log.warning('Skipped %d effects' % effects_skipped)
-
-        # ------------
-        #   ELEMENTS
-        # ------------
-        # Get number of render elements from the RenderElementMgr, record their name and state
-        # Also log a warning if we detect multiple elements with the same name, as this will cause issues while loading
-        # Since we aren't changing settings, we don't have to bother closing the Render Settings dialog
-        if self._options['elements']:
-            elements_el = _ETree.SubElement(pass_el, 'ELEMENTS')
-            elements_list = []
-            elements_skipped = 0
-            reMgr = self._rt.maxOps.getCurRenderElementMgr()
-
-            # Note that index starts at 0 this time.  Thanks, Autodesk!
-            for i in range(reMgr.NumRenderElements()):
-                element = reMgr.GetRenderElement(i)
-
-                # Validate name, skip and print error if it's not
-                if not _is_ascii(element.elementName):
-                    _log.warning('Skipping %s  -  It contains non-ASCII characters' % _xml_tag_cleaner(element.elementName))
-                    elements_skipped += 1
-                    continue
-
-                _ETree.SubElement(elements_el, _xml_tag_cleaner(element.elementName), {'realName': element.elementName,
-                                                                                       'enabled': str(element.enabled)})
-                _log.debug('Element %s is %s' % (element.elementName, element.enabled))
-
-                if element.elementName in elements_list:
-                    _log.warning('There are multiple Render Elements named %s!  '
-                                 'They will behave unpredictably when loaded!' % element.elementName)
-                else:
-                    elements_list.append(element.elementName)
-
-            if elements_skipped > 0:
-                _log.warning('Skipped %d elements' % elements_skipped)
-
-        # -----------------------
-        # Save the updated config
-        # -----------------------
-        self._rd_set_passes()
-        return self._rd_save_to_disk()
 
     def rd_load(self):
-        # TODO: Export this to RadishIO
         """
         Load the config for the current camera pass and apply it to the scene.
-        :return: Bool indicating success or failure.
         """
         # TODO: Add ability to restore saved resolution
         # TODO: Add ability to restore state of saved effects
         # TODO: Add ability to restore state of saved render elements
         _log.debug('rd_load')
 
-        # Run _rd_get_settings(), and cancel loading if it returns an error
-        if self._rd_get_settings() is False:
-            _log.error('Unable to load scene state - _rd_get_settings() failed')
-            return False
+        # Run _rd_get_settings(), and cancel saving if it returns an error
+        try:
+            self._rd_get_settings()
+        except ValueError:
+            _log.exception('Unable to load scene state - Failed to get settings from UI')
+            return
 
-        # Try to find the camera and pass in the config - If we can't, error out
-        cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
-        if cam_el is None:
-            _log.error('Camera not found in config!')
-            return False
-        else:
-            pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
-        if pass_el is None:
-            _log.error('Pass not found in config!')
-            return False
+        try:
+            self._rd_cfg.load_state(self._tgt_cam, self._tgt_pass, self._options)
+        except:
+            _log.exception('Unable to load scene state!')
 
-        layers_el = pass_el.find('LAYERS')
-        lights_el = pass_el.find('LIGHTS')
-
-        # -----------------------
-        #   Restore pass state
-        # -----------------------
-
-        # ----------
-        #   LAYERS
-        # ----------
-        if self._options['layers'] and layers_el is not None:
-            layers_skipped = 0
-
-            for tgt_layer in layers_el:
-                layer = self._rt.layerManager.getLayerFromName(tgt_layer.attrib['realName'])
-
-                # Check if this layer is in the current scene
-                if layer is None:
-                    _log.warning('Layer %s not found in scene - Skipping' % tgt_layer.attrib['realName'])
-                    layers_skipped += 1
-                    continue
-
-                layer.on = _xml_get_bool(tgt_layer.attrib['on'])
-
-                _log.debug('Layer %s is Visible: %s' % (tgt_layer.attrib['realName'],
-                                                        tgt_layer.attrib['on']))
-
-            _log.info('%d Layers restored' % len(layers_el))
-            if layers_skipped > 0:
-                _log.warning('%d Layers skipped' % layers_skipped)
-
-        # ----------
-        #   LIGHTS
-        # ----------
-        # TODO: Check if instance count has changed, and manually set each recorded instance if it has.
-        if self._options['lights'] and lights_el is not None:
-            lights_skipped = 0
-
-            for tgt_light in lights_el:
-                light = self._rt.getNodeByName(tgt_light.attrib['realName'])
-
-                # Check if this light is in the current scene
-                if light is None:
-                    _log.warning('Light %s not found in scene - Skipping' % tgt_light.attrib['realName'])
-                    lights_skipped += 1
-                    continue
-
-                # Lights have a few possible controls - VRay Lights have both.
-                # Make sure we only try to apply settings that this light should have.
-                if 'on' in tgt_light.attrib:
-                    light.on = _xml_get_bool(tgt_light.attrib['on'])
-                if 'enabled' in tgt_light.attrib:
-                    light.enabled = _xml_get_bool(tgt_light.attrib['enabled'])
-
-            _log.info('%d Unique Lights restored' % len(lights_el))
-            if lights_skipped > 0:
-                _log.warning('%d Lights skipped' % lights_skipped)
-
-        return True
 
     # Resets
-    def rd_reset_pass(self, cam_el=None, pass_el=None, save=True):
-        # TODO: Export this to RadishIO
+    def rd_reset_pass(self, tgt_cam=None, tgt_pass=None, save=True):
         """
-        Clears config data for the current camera pass.  If not passed kwargs, it will get the target pass from
-        GUI settings.
-        :param cam_el: An ETree element object for the target Camera.
-        :param pass_el: An ETree element object for the target Pass.
-        :param save: Whether or not to re-save the config after running.  Defaults to True.
-        :return: Bool indicating success or failure.
+        Calls RadishIO method to reset current camera pass.  If not passed arguments, get them from the UI.
+        :param tgt_cam: String, name of camera
+        :param tgt_pass: String, name of pass
+        :param save: Bool, should we re-save the config after doing this
+        :return: None
         """
         _log.debug('rd_reset_pass')
 
-        # If we weren't passed a target camera and pass element, get them
-        if cam_el is None or pass_el is None:
-            # Run _rd_get_settings(), and cancel resetting if it returns an error
-            if self._rd_get_settings() is False:
-                _log.error('Unable to reset selected pass')
-                return False
+        if tgt_cam is None or tgt_pass is None:
+            self._rd_get_settings()
+            tgt_cam = self._tgt_cam
+            tgt_pass = self._tgt_pass
 
-            cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
+        try:
+            self._rd_cfg.reset_pass(tgt_cam, tgt_pass)
+        except ValueError:
+            _log.exception('Unable to Reset Pass %s!' % tgt_pass)
 
-            if cam_el is None:
-                _log.error('Cam %s not found!' % self._tgt_cam)
-                return False
+        # Update Pass list
+        self._rd_set_passes(self._rd_cfg)
 
-            pass_el = cam_el.find("./*[@realName='%s']" % self._tgt_pass)
+        if save:
+            try:
+                self._rd_cfg.write()
+            except:
+                _log.exception('Unable to save config after resetting Pass %s!' % tgt_pass)
 
-            if pass_el is None:
-                _log.warning('Pass %s not found!' % self._tgt_pass)
-                return False
-
-        _log.info('Resetting %s %s' % (cam_el.attrib['realName'], pass_el.attrib['realName']))
-        # Clear the target pass
-        cam_el.remove(pass_el)
-
-        if save is True:
-            self._rd_set_passes()
-            return self._rd_save_to_disk()
-        else:
-            return True
-
-    def rd_reset_cam(self, cam_el=None, save=True):
-        # TODO: Export this to RadishIO
+    def rd_reset_cam(self, tgt_cam=None, save=True):
         """
-        Clears config data for the current camera.  If not passed kwargs, it will get the camera from GUI settings.
-        :param cam_el: An ETree element object for the target Camera.
-        :param save: Whether or not to re-save the config after running.  Defaults to True.
-        :return: Bool indicating success or failure.
+        Calls RadishIO method to reset current camera.  If not passed arguments, get them from the UI.
+        :param tgt_cam: String, name of camera
+        :param save: Bool, should we re-save the config after doing this
+        :return: None
         """
         _log.debug('rd_reset_cam')
 
-        # If we weren't passed a target camera, get it
-        if cam_el is None:
-            # Run _rd_get_settings(), and cancel resetting if it returns an error
-            if self._rd_get_settings() is False:
-                _log.error('Unable to reset selected camera')
-                return False
+        if tgt_cam is None:
+            self._rd_get_settings()
+            tgt_cam = self._tgt_cam
 
-            cam_el = self._rd_cfg_root.find("./*[@realName='%s']" % self._tgt_cam)
+        try:
+            self._rd_cfg.reset_cam(tgt_cam)
+        except ValueError:
+            _log.exception('Unable to Reset Cam %s!' % tgt_cam)
 
-            if cam_el is None:
-                _log.warning('Cam %s not found!' % self._tgt_cam)
-                return False
+        # Update Pass list
+        self._rd_set_passes(self._rd_cfg)
 
-        _log.info('Resetting %s' % cam_el.attrib['realName'])
-        # Clear the target camera
-        self._rd_cfg_root.remove(cam_el)
-
-        if save is True:
-            self._rd_set_passes()
-            return self._rd_save_to_disk()
-        else:
-            return True
+        if save:
+            try:
+                self._rd_cfg.write()
+            except:
+                _log.exception('Unable to save config after resetting Cam %s!' % tgt_cam)
 
     def rd_reset_all(self, save=True):
-        # TODO: Export this to RadishIO
         """
-        Entirely clears the loaded config file, except for the root node.
-        :param save: Whether or not to re-save the config after running.  Defaults to True.
-        :return: Bool indicating success or failure
+        Calls RadishIO method to reset ENTIRE config
+        :param save: Bool, should we re-save the config after doing this
+        :return: None
         """
         _log.debug('rd_reset_all')
 
-        _log.info('Resetting entire config...')
-        # Remove all children of _rd_cfg_root
-        for child in list(self._rd_cfg_root):
-            _log.debug('Removing %s data' % child.attrib['realName'])
-            self._rd_cfg_root.remove(child)
+        self._rd_cfg.reset_all()
 
-        if save is True:
-            self._rd_set_passes()
-            return self._rd_save_to_disk()
-        else:
-            return True
+        # Update Pass list
+        self._rd_set_passes(self._rd_cfg)
+
+        if save:
+            try:
+                self._rd_cfg.write()
+            except:
+                _log.exception('Unable to save config after resetting!')
 
     # QtWidget
     def closeEvent(self, event):
@@ -746,7 +471,7 @@ class RadishUI(QtW.QDialog):
             MaxPlus.NotificationManager.Unregister(self._active_camera_callback)
             _log.info('Successfully unregistered _active_camera_callback')
         except:
-            _log.warning('Could not unregister _active_camera_callback')
+            pass
 
         event.accept()
 

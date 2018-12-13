@@ -1,8 +1,8 @@
 # Destroys instances of the dialog before recreating it
 # This has to go first, before modules are reloaded or the ui var is re-declared.
 try:
-    rd_ui.close()
     _log.info('Closing old instances of UI...')
+    rd_ui.close()
 except:
     pass
 
@@ -35,7 +35,7 @@ except NameError:
 import radish_logger
 _log = radish_logger.setup('Radish')
 _log.info('Logger %s Active' % _log.name)
-_log.info('Starting Radish...')
+_log.info('Starting Radish...\r')
 
 import radish_ui
 
@@ -53,4 +53,4 @@ rd_ui = radish_ui.RadishUI(_uif, _rt, _log, _app)
 
 # Punch it
 rd_ui.show()
-_log.info('GUI created')
+_log.info('GUI created.\r')

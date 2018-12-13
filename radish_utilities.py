@@ -69,14 +69,14 @@ def get_instances(x):
     :param x: The input object
     :return: An array of Max objects.  If there are no instances, it will only contain the source object.
     """
-    # Check for " and ' in object name, error out if they're there
+    # Check for " and ' in object name, raise exception if there are
     if '"' in x.name or "'" in x.name:
-        return False
+        raise ValueError
 
-    instanceObjs = []
-    rt.InstanceMgr.GetInstances(x, pymxs.mxsreference(instanceObjs))
+    instances = []
+    rt.InstanceMgr.GetInstances(x, pymxs.mxsreference(instances))
 
-    return instanceObjs
+    return instances
 
 
 # --------------------
